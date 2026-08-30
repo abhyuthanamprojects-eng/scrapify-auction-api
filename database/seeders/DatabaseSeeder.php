@@ -23,6 +23,7 @@ class DatabaseSeeder extends Seeder
             NotificationSeeder::class,
             ProfileSeeder::class,
             AuditLogSeeder::class,
+            EnterpriseDomainSeeder::class,
         ]);
     }
 }

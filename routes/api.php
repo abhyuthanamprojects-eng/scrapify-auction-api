@@ -1,16 +1,23 @@
 <?php
 
+use App\Http\Controllers\Api\V1\ApprovalController;
 use App\Http\Controllers\Api\V1\AuctionController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\AwardController;
 use App\Http\Controllers\Api\V1\BidController;
 use App\Http\Controllers\Api\V1\CategoryController;
+use App\Http\Controllers\Api\V1\ClarificationController;
+use App\Http\Controllers\Api\V1\DisputeController;
+use App\Http\Controllers\Api\V1\InspectionController;
 use App\Http\Controllers\Api\V1\LotController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\ReportController;
+use App\Http\Controllers\Api\V1\RfxController;
+use App\Http\Controllers\Api\V1\RiskController;
 use App\Http\Controllers\Api\V1\TokenController;
 use App\Http\Controllers\Api\V1\VendorController;
 use App\Http\Controllers\Api\V1\WalletController;
@@ -48,6 +55,7 @@ Route::prefix('v1')->group(function () {
     Route::post('auctions/{code}/interested', [AuctionController::class, 'markInterested']);
     Route::delete('auctions/{code}/interested', [AuctionController::class, 'unmarkInterested']);
     Route::get('tokens/validate/{token}', [TokenController::class, 'validateToken']);
+    Route::get('gate-passes/verify/{qrToken}', [InspectionController::class, 'verifyGatePass']);
 
     /* ------------------------------------------------------- authenticated */
     Route::middleware('auth:sanctum')->group(function () {
@@ -173,6 +181,57 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:orders.manage');
         Route::post('orders/{code}/handover', [OrderController::class, 'verifyHandover'])
             ->middleware('permission:orders.manage');
+
+        /* rfx and technical evaluation */
+        Route::get('auctions/{code}/rfx', [RfxController::class, 'index']);
+        Route::post('auctions/{code}/rfx', [RfxController::class, 'store'])
+            ->middleware('permission:auctions.create');
+        Route::post('auctions/{code}/rfx/{packageId}/submit', [RfxController::class, 'submitResponse']);
+        Route::post('auctions/{code}/rfx/responses/{responseId}/evaluate', [RfxController::class, 'evaluateResponse'])
+            ->middleware('permission:auctions.approve');
+
+        /* site inspections and gate passes */
+        Route::get('auctions/{code}/inspections', [InspectionController::class, 'index']);
+        Route::post('auctions/{code}/inspections', [InspectionController::class, 'book']);
+        Route::post('gate-passes/{qrToken}/scan', [InspectionController::class, 'scanGatePass']);
+
+        /* clarifications and addenda */
+        Route::get('auctions/{code}/clarifications', [ClarificationController::class, 'index']);
+        Route::post('auctions/{code}/clarifications', [ClarificationController::class, 'askQuestion']);
+        Route::post('auctions/{code}/clarifications/{id}/answer', [ClarificationController::class, 'answerQuestion'])
+            ->middleware('permission:auctions.update');
+        Route::post('auctions/{code}/addenda', [ClarificationController::class, 'publishAddendum'])
+            ->middleware('permission:auctions.update');
+        Route::post('auctions/{code}/addenda/{addendumId}/acknowledge', [ClarificationController::class, 'acknowledgeAddendum']);
+
+        /* approvals workflow */
+        Route::get('approvals', [ApprovalController::class, 'index'])
+            ->middleware('permission:auctions.approve');
+        Route::post('auctions/{code}/approvals', [ApprovalController::class, 'store']);
+        Route::post('approvals/{id}/decide', [ApprovalController::class, 'decide'])
+            ->middleware('permission:auctions.approve');
+
+        /* awards and fallback offers */
+        Route::get('auctions/{code}/awards', [AwardController::class, 'index']);
+        Route::post('auctions/{code}/awards', [AwardController::class, 'issueAward'])
+            ->middleware('permission:auctions.approve');
+        Route::post('awards/{id}/accept', [AwardController::class, 'accept']);
+        Route::post('awards/{id}/default', [AwardController::class, 'defaultWinner'])
+            ->middleware('permission:auctions.approve');
+
+        /* disputes and arbitration */
+        Route::get('disputes', [DisputeController::class, 'index']);
+        Route::get('disputes/{code}', [DisputeController::class, 'show']);
+        Route::post('disputes', [DisputeController::class, 'store']);
+        Route::post('disputes/{code}/messages', [DisputeController::class, 'addTimelineMessage']);
+        Route::post('disputes/{code}/resolve', [DisputeController::class, 'resolve'])
+            ->middleware('permission:audit.view');
+
+        /* risk and fraud flags */
+        Route::get('risk/flags', [RiskController::class, 'index'])
+            ->middleware('permission:audit.view');
+        Route::post('risk/flags/{code}/resolve', [RiskController::class, 'resolve'])
+            ->middleware('permission:audit.view');
 
         /* live-access tokens */
         Route::get('tokens', [TokenController::class, 'index'])

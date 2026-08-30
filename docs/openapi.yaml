@@ -29,6 +29,14 @@ tags:
   - name: Audit Log
   - name: Watchlist
   - name: My Bids
+  - name: RFx
+  - name: Inspections
+  - name: Gate Passes
+  - name: Clarifications
+  - name: Approvals
+  - name: Awards
+  - name: Disputes
+  - name: Risk & Security
 
 security:
   - bearerAuth: []

@@ -5,17 +5,20 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class VendorDocument extends Model
+class FallbackOffer extends Model
 {
     protected $guarded = [];
 
     protected $casts = [
-        'required' => 'boolean',
-        'ocr_confidence' => 'float',
-        'ocr_extracted_data' => 'array',
-        'approved_on' => 'datetime',
-        'uploaded_at' => 'datetime',
+        'offer_amount' => 'float',
+        'price_delta' => 'float',
+        'expires_at' => 'datetime',
     ];
+
+    public function award(): BelongsTo
+    {
+        return $this->belongsTo(Award::class);
+    }
 
     public function vendor(): BelongsTo
     {

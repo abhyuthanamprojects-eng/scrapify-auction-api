@@ -99,6 +99,41 @@ class Auction extends Model
         return $this->direction === 'reverse';
     }
 
+    public function rfxPackages(): HasMany
+    {
+        return $this->hasMany(RfxPackage::class);
+    }
+
+    public function inspectionBookings(): HasMany
+    {
+        return $this->hasMany(InspectionBooking::class);
+    }
+
+    public function clarifications(): HasMany
+    {
+        return $this->hasMany(Clarification::class);
+    }
+
+    public function addenda(): HasMany
+    {
+        return $this->hasMany(AuctionAddendum::class);
+    }
+
+    public function approvalRequests(): HasMany
+    {
+        return $this->hasMany(ApprovalRequest::class);
+    }
+
+    public function awards(): HasMany
+    {
+        return $this->hasMany(Award::class);
+    }
+
+    public function disputes(): HasMany
+    {
+        return $this->hasMany(Dispute::class);
+    }
+
     /** The user account behind the winning vendor, for order ownership. */
     public function winnerVendorUserId(): ?int
     {
