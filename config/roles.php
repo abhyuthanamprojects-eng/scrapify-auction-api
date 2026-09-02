@@ -35,6 +35,28 @@ return [
             'audit.view',
         ],
 
+        'operations' => [
+            ...$view,
+            'organizations.create', 'organizations.update', 'organizations.submit',
+            'vendors.approve', 'vendors.reject', 'vendors.suspend', 'vendors.update',
+            'auctions.create', 'auctions.update', 'auctions.submit',
+            'auctions.approve', 'auctions.send_back', 'auctions.reject',
+            'auctions.publish', 'auctions.extend', 'auctions.close',
+            'lots.manage',
+            'tokens.create', 'tokens.revoke',
+            'notifications.view',
+            'orders.view', 'orders.manage',
+            'wallet.view_any', 'emd.manage',
+            'audit.view',
+        ],
+
+        'compliance' => [
+            ...$view,
+            'vendors.approve', 'vendors.reject', 'vendors.suspend', 'vendors.update',
+            'audit.view',
+            'notifications.view',
+        ],
+
         'buyer' => [
             'auctions.view', 'lots.view', 'bids.view',
             'bids.place', 'bids.proxy',
@@ -80,10 +102,12 @@ return [
     'labels' => [
         'super_admin' => 'Super Admin',
         'admin' => 'Admin',
+        'operations' => 'Operations Manager',
+        'compliance' => 'Compliance Officer',
         'buyer' => 'Buyer',
         'seller' => 'Seller',
         'procurement_manager' => 'Procurement Manager',
-        'finance_manager' => 'Finance Manager',
+        'finance_manager' => 'Finance Controller',
         'technical_evaluator' => 'Technical Evaluator',
         'auditor' => 'Auditor',
     ],
