@@ -1,0 +1,96 @@
+name: Deploy Laravel API to Hostinger
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Deploy to Hostinger
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          port: ${{ secrets.HOSTINGER_PORT }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          script: |
+            set -e
+
+            echo "=============================="
+            echo "Deploying Laravel API"
+            echo "=============================="
+
+            # Set deployment path
+            DEPLOY_PATH="/home/u551475123/domains/api.scrapifyauctions.com"
+
+            # Navigate to deployment directory
+            cd $DEPLOY_PATH
+
+            # Remove old directory if it exists (keep only latest)
+            if [ -d "scrapify-auction-api" ]; then
+              echo "✓ Updating existing repository..."
+              cd scrapify-auction-api
+              git fetch origin main
+              git reset --hard origin/main
+            else
+              echo "✓ Cloning repository..."
+              git clone https://github.com/abhyuthanamprojects-eng/scrapify-auction-api.git
+              cd scrapify-auction-api
+            fi
+
+            echo "✓ Installing PHP dependencies..."
+            # Check if Composer is installed
+            if ! command -v composer &> /dev/null; then
+              echo "Installing Composer..."
+              curl -sS https://getcomposer.org/installer | php
+              sudo mv composer.phar /usr/local/bin/composer
+            fi
+            composer install --no-dev --optimize-autoloader
+
+            echo "✓ Setting up .env file..."
+            # Create .env from .env.example
+            if [ ! -f ".env" ]; then
+              cp .env.example .env
+            fi
+
+            # Update .env with secrets
+            sed -i "s/APP_URL=.*/APP_URL=${{ secrets.APP_URL }}/" .env
+            sed -i "s/DB_HOST=.*/DB_HOST=${{ secrets.DB_HOST }}/" .env
+            sed -i "s/DB_PORT=.*/DB_PORT=${{ secrets.DB_PORT }}/" .env
+            sed -i "s/DB_DATABASE=.*/DB_DATABASE=${{ secrets.DB_DATABASE }}/" .env
+            sed -i "s/DB_USERNAME=.*/DB_USERNAME=${{ secrets.DB_USERNAME }}/" .env
+            sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=${{ secrets.DB_PASSWORD }}/" .env
+
+            echo "✓ Generating application key..."
+            php artisan key:generate --force
+
+            echo "✓ Running database migrations..."
+            php artisan migrate --force
+
+            echo "✓ Clearing caches..."
+            php artisan config:cache
+            php artisan route:cache
+
+            echo "✓ Copying to public_html..."
+            # Copy Laravel files to public_html for web serving
+            rm -rf $DEPLOY_PATH/public_html/*
+            cp -r . $DEPLOY_PATH/public_html/
+
+            echo "✓ Setting permissions..."
+            # Set proper permissions for Laravel
+            chmod -R 755 $DEPLOY_PATH/public_html
+            chmod -R 644 $DEPLOY_PATH/public_html/*
+            chmod -R 755 $DEPLOY_PATH/public_html/storage
+            chmod -R 755 $DEPLOY_PATH/public_html/bootstrap/cache
+
+            echo ""
+            echo "=============================="
+            echo "✓ Deployment Complete!"
+            echo "API URL: https://api.scrapifyauctions.com"
+            echo "=============================="
