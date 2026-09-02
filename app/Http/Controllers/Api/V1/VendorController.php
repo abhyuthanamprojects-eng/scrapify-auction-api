@@ -126,41 +126,6 @@ class VendorController extends Controller
         $path = $request->file('file')->store('kyc', 'public');
         $originalName = $request->file('file')->getClientOriginalName();
         $kind = $data['kind'];
-        $docKey = strtolower($data['doc_key']);
-
-        // Automated OCR Data Extraction & Verification Pipeline
-        $ocrData = [
-            'document_type' => $kind,
-            'file_name' => $originalName,
-            'extracted_entity_name' => $vendor->company_name,
-            'extracted_at' => now()->toISOString(),
-            'engine' => 'Scrapify OCR Vision v2.4 (NABL Compliant)',
-        ];
-
-        if (str_contains($docKey, 'gst') || str_contains(strtolower($kind), 'gst')) {
-            $ocrData['gstin'] = $vendor->gst_number ?: '27AABCM'.rand(1000, 9999).'N1Z5';
-            $ocrData['legal_trade_name'] = $vendor->company_name;
-            $ocrData['registration_date'] = '2021-04-12';
-            $ocrData['taxpayer_type'] = 'Regular';
-            $ocrData['jurisdiction'] = 'State - Ward 4, Range 2';
-            $ocrData['status'] = 'Active & Validated via GSTN API';
-        } elseif (str_contains($docKey, 'pan') || str_contains(strtolower($kind), 'pan')) {
-            $ocrData['pan_number'] = $vendor->pan_number ?: 'ABCDE'.rand(1000, 9999).'F';
-            $ocrData['name_on_card'] = $vendor->company_name;
-            $ocrData['entity_type'] = 'Private Limited Company';
-            $ocrData['status'] = 'Active (NSDL Verified)';
-        } elseif (str_contains($docKey, 'license') || str_contains(strtolower($kind), 'license') || str_contains(strtolower($kind), 'pollution')) {
-            $ocrData['consent_number'] = $vendor->license_number ?: 'MPCB/RO-PUN/CONSENT/'.rand(1000, 9999);
-            $ocrData['category'] = 'Orange / Hazardous & E-Waste Processing';
-            $ocrData['valid_from'] = '2024-01-01';
-            $ocrData['valid_until'] = '2028-12-31';
-            $ocrData['authorized_capacity'] = '5,000 MT / Annum';
-            $ocrData['status'] = 'Valid & In-Force';
-        } else {
-            $ocrData['document_number'] = 'DOC-'.rand(100000, 999999);
-            $ocrData['status'] = 'Verified';
-        }
-
         $doc = VendorDocument::updateOrCreate(
             ['vendor_id' => $vendor->id, 'doc_key' => $data['doc_key']],
             [
@@ -169,25 +134,21 @@ class VendorController extends Controller
                 'file_name' => $originalName,
                 'file_path' => $path,
                 'size_kb' => (int) round($request->file('file')->getSize() / 1024),
-                'status' => 'approved',
-                'ocr_status' => 'processed',
-                'ocr_confidence' => 98.80,
-                'ocr_extracted_data' => $ocrData,
+                'status' => 'pending',
+                'ocr_status' => 'pending',
+                'ocr_confidence' => 0,
+                'ocr_extracted_data' => null,
                 'reason' => null,
-                'approved_on' => now(),
+                'approved_on' => null,
                 'uploaded_at' => now(),
             ],
         );
 
         return response()->json([
             'success' => true,
-            'message' => 'Document uploaded and successfully verified via Scrapify OCR Engine.',
+            'message' => 'Document uploaded and queued for verification.',
             'document' => $doc,
-            'ocr' => [
-                'status' => 'processed',
-                'confidence' => 98.80,
-                'extracted_data' => $ocrData,
-            ],
+            'ocr' => ['status' => 'pending'],
         ], 201);
     }
 
@@ -219,7 +180,7 @@ class VendorController extends Controller
         $data = $request->validate([
             'method' => ['required', Rule::in(['RTGS', 'NEFT', 'UPI'])],
             'reference' => ['required', 'string', 'max:60', 'unique:payments,reference'],
-            'amount' => ['required', 'numeric', 'min:0'],
+            'amount' => ['sometimes', 'numeric'],
         ]);
 
         $vendor = Vendor::where('code', $code)->firstOrFail();
@@ -229,7 +190,7 @@ class VendorController extends Controller
             'reference' => $data['reference'],
             'payable_type' => Vendor::class,
             'payable_id' => $vendor->id,
-            'amount' => $data['amount'],
+            'amount' => (float) config('scrapify.vendor_registration_fee', 5000),
             'method' => $data['method'],
             'status' => 'pending',
             'meta' => ['purpose' => 'vendor_registration'],

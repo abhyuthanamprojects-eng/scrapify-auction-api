@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\ProfileController;
+use App\Http\Controllers\Api\V1\PlatformConfigController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\RfxController;
 use App\Http\Controllers\Api\V1\RiskController;
@@ -46,6 +47,7 @@ Route::prefix('v1')->group(function () {
     // Reachable without a token: the public listing, the token-access page and
     // the anonymous "Interested" click all predate registration.
     Route::get('categories', [CategoryController::class, 'index']);
+    Route::get('platform-config', [PlatformConfigController::class, 'show']);
     Route::get('auctions', [AuctionController::class, 'index']);
     Route::get('auctions/{code}', [AuctionController::class, 'show']);
     Route::get('auctions/{code}/lots', [LotController::class, 'index']);
