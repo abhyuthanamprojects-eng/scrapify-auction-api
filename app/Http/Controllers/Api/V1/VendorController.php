@@ -8,7 +8,9 @@ use App\Models\Category;
 use App\Models\Payment;
 use App\Models\Vendor;
 use App\Models\VendorDocument;
+use App\Models\VendorInvitation;
 use App\Services\WalletService;
+use Illuminate\Support\Str;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -110,6 +112,46 @@ class VendorController extends Controller
         return (new VendorResource($vendor->load(['materials', 'documents'])))
             ->response()
             ->setStatusCode(201);
+    }
+
+    public function invite(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required_without:phone', 'nullable', 'email'],
+            'phone' => ['required_without:email', 'nullable', 'string', 'max:20'],
+            'company_name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'auction_code' => ['sometimes', 'nullable', 'string', 'exists:auctions,code'],
+            'message' => ['sometimes', 'nullable', 'string', 'max:2000'],
+        ]);
+
+        $auctionId = null;
+        if ($auctionCode = ($data['auction_code'] ?? null)) {
+            $auctionId = \App\Models\Auction::where('code', $auctionCode)->value('id');
+        }
+
+        $invitation = VendorInvitation::create([
+            'email' => $data['email'] ?? null,
+            'phone' => $data['phone'] ?? null,
+            'company_name' => $data['company_name'] ?? null,
+            'auction_id' => $auctionId,
+            'invited_by' => $request->user()->id,
+            'token' => Str::random(64),
+            'message' => $data['message'] ?? null,
+            'sent_at' => now(),
+            'expires_at' => now()->addDays(7),
+        ]);
+
+        return response()->json([
+            'invitation' => [
+                'id' => $invitation->code,
+                'email' => $invitation->email,
+                'phone' => $invitation->phone,
+                'company_name' => $invitation->company_name,
+                'status' => $invitation->status,
+                'sent_at' => $invitation->sent_at->toIso8601String(),
+                'expires_at' => $invitation->expires_at->toIso8601String(),
+            ],
+        ], 201);
     }
 
     /** KYC document upload. Files land in storage/app/public/kyc. */

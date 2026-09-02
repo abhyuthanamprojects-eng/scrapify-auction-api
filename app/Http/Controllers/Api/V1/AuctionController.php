@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\AuctionResource;
 use App\Models\Auction;
 use App\Models\AuctionExtension;
+use App\Models\AuctionTermsAcceptance;
 use App\Models\Category;
 use App\Models\InterestedBidder;
 use App\Models\Lot;
@@ -372,6 +373,23 @@ class AuctionController extends Controller
         return response()->json([
             'interested' => false,
             'interested_count' => $auction->interestedBidders()->count(),
+        ]);
+    }
+
+    public function acceptTerms(Request $request, string $code): JsonResponse
+    {
+        $auction = Auction::where('code', $code)->firstOrFail();
+        $user = $request->user();
+
+        AuctionTermsAcceptance::updateOrCreate(
+            ['auction_id' => $auction->id, 'user_id' => $user->id],
+            ['ip' => $request->ip(), 'accepted_at' => now()],
+        );
+
+        return response()->json([
+            'accepted' => true,
+            'auction_id' => $auction->code,
+            'accepted_at' => now()->toIso8601String(),
         ]);
     }
 

@@ -220,6 +220,73 @@ class ReportController extends Controller
         ]);
     }
 
+    public function summary(Request $request): JsonResponse
+    {
+        $totalAuctions = Auction::count();
+        $liveAuctions = Auction::where('status', 'live')->count();
+        $closedAuctions = Auction::where('status', 'closed')->count();
+        $cancelledAuctions = Auction::where('status', 'cancelled')->count();
+        $pendingApproval = Auction::where('status', 'pending_approval')->count();
+
+        $totalRevenue = (float) Auction::where('status', 'closed')->sum('final_price');
+        $avgBidders = Auction::where('status', 'closed')->avg('bidders_count') ?? 0;
+
+        $totalVendors = Vendor::count();
+        $activeVendors = Vendor::where('status', 'approved')->count();
+        $pendingVendors = Vendor::where('status', 'pending')->count();
+
+        $totalOrgs = Organization::count();
+
+        $monthlyRevenue = Auction::where('status', 'closed')
+            ->where('closed_at', '>=', now()->subMonths(6))
+            ->selectRaw("DATE_FORMAT(closed_at, '%Y-%m') as month, SUM(final_price) as total, COUNT(*) as count")
+            ->groupBy('month')
+            ->orderBy('month')
+            ->get()
+            ->map(fn ($r) => [
+                'month' => $r->month,
+                'revenue_inr' => (float) $r->total,
+                'auctions' => $r->count,
+            ]);
+
+        $topCategories = Auction::whereIn('status', ['closed', 'live'])
+            ->selectRaw('category_id, COUNT(*) as total, SUM(COALESCE(final_price, current_highest, 0)) as value')
+            ->groupBy('category_id')
+            ->with('category')
+            ->orderByDesc('total')
+            ->limit(10)
+            ->get()
+            ->map(fn ($r) => [
+                'name' => $r->category?->name ?? '—',
+                'auctions' => $r->total,
+                'value_inr' => (float) $r->value,
+            ]);
+
+        return response()->json([
+            'auctions' => [
+                'total' => $totalAuctions,
+                'live' => $liveAuctions,
+                'closed' => $closedAuctions,
+                'cancelled' => $cancelledAuctions,
+                'pending_approval' => $pendingApproval,
+            ],
+            'revenue' => [
+                'total_inr' => $totalRevenue,
+                'avg_bidders_per_auction' => round($avgBidders, 1),
+            ],
+            'vendors' => [
+                'total' => $totalVendors,
+                'active' => $activeVendors,
+                'pending' => $pendingVendors,
+            ],
+            'organizations' => [
+                'total' => $totalOrgs,
+            ],
+            'monthly_revenue' => $monthlyRevenue,
+            'top_categories' => $topCategories,
+        ]);
+    }
+
     private function filtered(Request $request)
     {
         $q = Auction::query()->whereIn('status', ['live', 'closed', 'cancelled']);

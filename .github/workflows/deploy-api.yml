@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Deploy to Hostinger
         uses: appleboy/ssh-action@master
@@ -19,6 +19,7 @@ jobs:
           port: ${{ secrets.HOSTINGER_PORT }}
           username: ${{ secrets.HOSTINGER_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          command_timeout: 10m
           script: |
             set -e
 
@@ -29,65 +30,92 @@ jobs:
             DEPLOY_PATH="/home/u551475123/domains/api.scrapifyauctions.com"
             REPO_URL="https://github.com/abhyuthanamprojects-eng/scrapify-auction-api.git"
 
-            # Create base directory
             mkdir -p $DEPLOY_PATH
 
-            # Clone or update repository
-            if [ -d "$DEPLOY_PATH/repo" ]; then
+            # 1. Clone or update repository
+            if [ -d "$DEPLOY_PATH/repo/.git" ]; then
               echo "✓ Updating repository..."
               cd $DEPLOY_PATH/repo
               git fetch origin main
               git reset --hard origin/main
             else
               echo "✓ Cloning repository..."
-              git clone $REPO_URL $DEPLOY_PATH/repo
-              cd $DEPLOY_PATH/repo
+              rm -rf $DEPLOY_PATH/repo
+              git clone --depth 1 $REPO_URL $DEPLOY_PATH/repo
             fi
 
-            # Backup current deployment
-            if [ -d "$DEPLOY_PATH/public_html" ]; then
-              echo "✓ Backing up current deployment..."
-              rm -rf $DEPLOY_PATH/public_html-old
-              mv $DEPLOY_PATH/public_html $DEPLOY_PATH/public_html-old
+            # 2. Copy Laravel app files to parent directory (NOT public_html)
+            echo "✓ Syncing Laravel app files..."
+            for dir in app bootstrap config database resources routes storage vendor; do
+              rm -rf $DEPLOY_PATH/$dir
+              cp -r $DEPLOY_PATH/repo/$dir $DEPLOY_PATH/$dir
+            done
+            for file in artisan composer.json composer.lock; do
+              cp $DEPLOY_PATH/repo/$file $DEPLOY_PATH/$file 2>/dev/null || true
+            done
+
+            # 3. Copy ONLY public/ contents into public_html (the web root)
+            echo "✓ Syncing public_html..."
+            mkdir -p $DEPLOY_PATH/public_html
+            cp $DEPLOY_PATH/repo/public/index.php $DEPLOY_PATH/public_html/index.php
+            cp $DEPLOY_PATH/repo/public/robots.txt $DEPLOY_PATH/public_html/robots.txt 2>/dev/null || true
+            cp $DEPLOY_PATH/repo/public/favicon.ico $DEPLOY_PATH/public_html/favicon.ico 2>/dev/null || true
+
+            # 4. Create .htaccess for URL rewriting
+            cat > $DEPLOY_PATH/public_html/.htaccess << 'HTEOF'
+            <IfModule mod_rewrite.c>
+                RewriteEngine On
+                RewriteBase /
+                RewriteCond %{HTTP:Authorization} .
+                RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+                RewriteCond %{REQUEST_FILENAME} !-d
+                RewriteCond %{REQUEST_URI} (.+)/$
+                RewriteRule ^ %1 [L,R=301]
+                RewriteCond %{REQUEST_FILENAME} !-d
+                RewriteCond %{REQUEST_FILENAME} !-f
+                RewriteRule ^ index.php [L]
+            </IfModule>
+            HTEOF
+
+            # 5. Create storage symlink manually (exec() is disabled)
+            ln -sfn $DEPLOY_PATH/storage/app/public $DEPLOY_PATH/public_html/storage
+
+            # 6. Setup .env — preserve existing, create from example on first deploy
+            echo "✓ Setting up .env..."
+            if [ ! -f "$DEPLOY_PATH/.env" ]; then
+              cp $DEPLOY_PATH/repo/.env.example $DEPLOY_PATH/.env
+            fi
+            cd $DEPLOY_PATH
+            sed -i "s|^APP_URL=.*|APP_URL=${{ secrets.APP_URL }}|" .env
+            sed -i "s|^DB_HOST=.*|DB_HOST=localhost|" .env
+            sed -i "s|^DB_PORT=.*|DB_PORT=${{ secrets.DB_PORT }}|" .env
+            sed -i "s|^DB_DATABASE=.*|DB_DATABASE=${{ secrets.DB_DATABASE }}|" .env
+            sed -i "s|^DB_USERNAME=.*|DB_USERNAME=${{ secrets.DB_USERNAME }}|" .env
+            sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD="${{ secrets.DB_PASSWORD }}"|' .env
+
+            # 7. Generate app key only if not set
+            echo "✓ Checking application key..."
+            if ! grep -q "^APP_KEY=base64:" $DEPLOY_PATH/.env; then
+              php artisan key:generate --force
             fi
 
-            # Setup new deployment
-            echo "✓ Setting up new deployment..."
-            cp -r $DEPLOY_PATH/repo $DEPLOY_PATH/public_html
-
-            cd $DEPLOY_PATH/public_html
-
-            echo "✓ Setting up .env file..."
-            if [ ! -f ".env" ]; then
-              if [ -f ".env.example" ]; then
-                cp .env.example .env
-              fi
-            fi
-
-            # Update .env with secrets
-            if [ -f ".env" ]; then
-              sed -i "s|APP_URL=.*|APP_URL=${{ secrets.APP_URL }}|g" .env
-              sed -i "s|DB_HOST=.*|DB_HOST=${{ secrets.DB_HOST }}|g" .env
-              sed -i "s|DB_PORT=.*|DB_PORT=${{ secrets.DB_PORT }}|g" .env
-              sed -i "s|DB_DATABASE=.*|DB_DATABASE=${{ secrets.DB_DATABASE }}|g" .env
-              sed -i "s|DB_USERNAME=.*|DB_USERNAME=${{ secrets.DB_USERNAME }}|g" .env
-              sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=${{ secrets.DB_PASSWORD }}|g" .env
-            fi
-
-            echo "✓ Generating application key..."
-            php artisan key:generate --force 2>/dev/null || echo "  (Key may exist)"
-
+            # 8. Run database migrations
             echo "✓ Running database migrations..."
-            php artisan migrate --force 2>/dev/null || echo "  (Migrations may have run)"
+            php artisan migrate --force 2>&1 || echo "  (Migrations may need manual review)"
 
-            echo "✓ Clearing caches..."
-            php artisan config:cache 2>/dev/null || true
-            php artisan route:cache 2>/dev/null || true
+            # 9. Cache for production
+            echo "✓ Caching configuration..."
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
 
+            # 10. Set permissions
             echo "✓ Setting file permissions..."
             chmod -R 755 $DEPLOY_PATH/public_html
-            [ -d "$DEPLOY_PATH/public_html/storage" ] && chmod -R 775 $DEPLOY_PATH/public_html/storage
-            [ -d "$DEPLOY_PATH/public_html/bootstrap/cache" ] && chmod -R 775 $DEPLOY_PATH/public_html/bootstrap/cache
+            chmod 644 $DEPLOY_PATH/public_html/.htaccess
+            chmod 644 $DEPLOY_PATH/public_html/index.php
+            chmod -R 775 $DEPLOY_PATH/storage
+            chmod -R 775 $DEPLOY_PATH/bootstrap/cache
 
             echo ""
             echo "=============================="

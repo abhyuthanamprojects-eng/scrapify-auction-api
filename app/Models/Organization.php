@@ -36,6 +36,11 @@ class Organization extends Model
         return $this->hasMany(Plant::class);
     }
 
+    public function users(): HasMany
+    {
+        return $this->hasMany(User::class);
+    }
+
     public function auctions(): HasMany
     {
         return $this->hasMany(Auction::class);

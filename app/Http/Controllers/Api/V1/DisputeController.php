@@ -141,6 +141,43 @@ class DisputeController extends Controller
         ]);
     }
 
+    public function uploadEvidence(Request $request, string $code): JsonResponse
+    {
+        $dispute = Dispute::where('code', $code)->firstOrFail();
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'file' => 'required|file|max:10240',
+        ]);
+
+        $path = $request->file('file')->store('dispute-evidence', 'public');
+        $originalName = $request->file('file')->getClientOriginalName();
+        $mimeType = $request->file('file')->getMimeType();
+
+        $evidence = DisputeEvidence::create([
+            'dispute_id' => $dispute->id,
+            'title' => $validated['title'],
+            'file_url' => $path,
+            'file_type' => $mimeType,
+            'uploaded_by_user_id' => $user->id,
+        ]);
+
+        DisputeTimeline::create([
+            'dispute_id' => $dispute->id,
+            'author_name' => $user->name,
+            'author_role' => $user->vendor_id ? 'Vendor' : 'Operations',
+            'message' => "Evidence uploaded: {$validated['title']} ({$originalName})",
+            'user_id' => $user->id,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Evidence uploaded successfully.',
+            'data' => $evidence,
+        ], 201);
+    }
+
     public function resolve(Request $request, string $code): JsonResponse
     {
         $dispute = Dispute::where('code', $code)->firstOrFail();

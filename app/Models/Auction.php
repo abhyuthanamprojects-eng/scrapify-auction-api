@@ -134,6 +134,11 @@ class Auction extends Model
         return $this->hasMany(Dispute::class);
     }
 
+    public function termsAcceptances(): HasMany
+    {
+        return $this->hasMany(AuctionTermsAcceptance::class);
+    }
+
     /** The user account behind the winning vendor, for order ownership. */
     public function winnerVendorUserId(): ?int
     {

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AdminUserController;
 use App\Http\Controllers\Api\V1\ApprovalController;
 use App\Http\Controllers\Api\V1\AuctionController;
 use App\Http\Controllers\Api\V1\AuditLogController;
@@ -9,6 +10,9 @@ use App\Http\Controllers\Api\V1\BidController;
 use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\ClarificationController;
 use App\Http\Controllers\Api\V1\DisputeController;
+use App\Http\Controllers\Api\V1\FinanceController;
+use App\Http\Controllers\Api\V1\TeamController;
+use App\Http\Controllers\Api\V1\FulfilmentController;
 use App\Http\Controllers\Api\V1\InspectionController;
 use App\Http\Controllers\Api\V1\LotController;
 use App\Http\Controllers\Api\V1\NotificationController;
@@ -92,8 +96,13 @@ Route::prefix('v1')->group(function () {
         Route::post('organizations/{code}/reject', [OrganizationController::class, 'reject'])
             ->middleware('permission:organizations.approve');
 
+        /* auction terms acceptance */
+        Route::post('auctions/{code}/terms/accept', [AuctionController::class, 'acceptTerms']);
+
         /* vendors */
         Route::post('vendors/register', [VendorController::class, 'register']);
+        Route::post('vendors/invitations', [VendorController::class, 'invite'])
+            ->middleware('permission:vendors.approve');
         Route::post('vendors/{code}/documents', [VendorController::class, 'uploadDocument']);
         Route::post('vendors/{code}/registration-payment', [VendorController::class, 'recordRegistrationPayment']);
         Route::get('vendors', [VendorController::class, 'index'])
@@ -226,8 +235,14 @@ Route::prefix('v1')->group(function () {
         Route::get('disputes/{code}', [DisputeController::class, 'show']);
         Route::post('disputes', [DisputeController::class, 'store']);
         Route::post('disputes/{code}/messages', [DisputeController::class, 'addTimelineMessage']);
+        Route::post('disputes/{code}/evidence', [DisputeController::class, 'uploadEvidence']);
         Route::post('disputes/{code}/resolve', [DisputeController::class, 'resolve'])
             ->middleware('permission:audit.view');
+
+        /* team members (org/vendor scoped) */
+        Route::get('team/members', [TeamController::class, 'index']);
+        Route::post('team/members', [TeamController::class, 'store']);
+        Route::patch('team/members/{id}', [TeamController::class, 'update']);
 
         /* risk and fraud flags */
         Route::get('risk/flags', [RiskController::class, 'index'])
@@ -255,6 +270,25 @@ Route::prefix('v1')->group(function () {
         /* audit log — read-only, auditor and admin roles */
         Route::get('audit-logs', [AuditLogController::class, 'index'])
             ->middleware('permission:audit.view');
+
+        /* admin-only endpoints */
+        Route::prefix('admin')->group(function () {
+            Route::get('finance/summary', [FinanceController::class, 'summary'])
+                ->middleware('permission:wallet.view_any');
+
+            Route::get('fulfilments', [FulfilmentController::class, 'index'])
+                ->middleware('permission:orders.manage');
+
+            Route::get('organisation/users', [AdminUserController::class, 'index'])
+                ->middleware('permission:organizations.view');
+            Route::post('organisation/users', [AdminUserController::class, 'store'])
+                ->middleware('permission:organizations.create');
+            Route::patch('organisation/users/{id}', [AdminUserController::class, 'update'])
+                ->middleware('permission:organizations.update');
+
+            Route::get('reports/summary', [ReportController::class, 'summary'])
+                ->middleware('permission:reports.view');
+        });
 
         /* notifications */
         Route::get('notifications', [NotificationController::class, 'index']);
