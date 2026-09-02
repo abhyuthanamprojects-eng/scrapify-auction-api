@@ -6,51 +6,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: mbstring,pdo,pdo_mysql,bcmath,ctype,json
-
-      - name: Install Composer
-        uses: php-actions/composer@v6
-        with:
-          version: 2
-          args: --no-dev --optimize-autoloader
-
-      - name: Upload built artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: laravel-build
-          path: .
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: laravel-build
-
-      - name: Deploy to Hostinger via SSH
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          port: ${{ secrets.HOSTINGER_PORT }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          source: "."
-          target: "/home/u551475123/domains/api.scrapifyauctions.com/deploy-temp"
-          strip_components: 0
-
-      - name: Setup and Verify Deployment
+      - name: Deploy to Hostinger
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOSTINGER_HOST }}
@@ -61,11 +23,26 @@ jobs:
             set -e
 
             echo "=============================="
-            echo "Finalizing Laravel API Deployment"
+            echo "Deploying Laravel API"
             echo "=============================="
 
             DEPLOY_PATH="/home/u551475123/domains/api.scrapifyauctions.com"
-            TEMP_PATH="$DEPLOY_PATH/deploy-temp"
+            REPO_URL="https://github.com/abhyuthanamprojects-eng/scrapify-auction-api.git"
+
+            # Create base directory
+            mkdir -p $DEPLOY_PATH
+
+            # Clone or update repository
+            if [ -d "$DEPLOY_PATH/repo" ]; then
+              echo "✓ Updating repository..."
+              cd $DEPLOY_PATH/repo
+              git fetch origin main
+              git reset --hard origin/main
+            else
+              echo "✓ Cloning repository..."
+              git clone $REPO_URL $DEPLOY_PATH/repo
+              cd $DEPLOY_PATH/repo
+            fi
 
             # Backup current deployment
             if [ -d "$DEPLOY_PATH/public_html" ]; then
@@ -74,30 +51,34 @@ jobs:
               mv $DEPLOY_PATH/public_html $DEPLOY_PATH/public_html-old
             fi
 
-            # Move new files to public_html
-            echo "✓ Activating new deployment..."
-            mv $TEMP_PATH $DEPLOY_PATH/public_html
+            # Setup new deployment
+            echo "✓ Setting up new deployment..."
+            cp -r $DEPLOY_PATH/repo $DEPLOY_PATH/public_html
 
             cd $DEPLOY_PATH/public_html
 
             echo "✓ Setting up .env file..."
             if [ ! -f ".env" ]; then
-              cp .env.example .env
+              if [ -f ".env.example" ]; then
+                cp .env.example .env
+              fi
             fi
 
-            # Update .env with secrets using proper escaping
-            sed -i 's|APP_URL=.*|APP_URL=${{ secrets.APP_URL }}|g' .env
-            sed -i 's|DB_HOST=.*|DB_HOST=${{ secrets.DB_HOST }}|g' .env
-            sed -i 's|DB_PORT=.*|DB_PORT=${{ secrets.DB_PORT }}|g' .env
-            sed -i 's|DB_DATABASE=.*|DB_DATABASE=${{ secrets.DB_DATABASE }}|g' .env
-            sed -i 's|DB_USERNAME=.*|DB_USERNAME=${{ secrets.DB_USERNAME }}|g' .env
-            sed -i 's|DB_PASSWORD=.*|DB_PASSWORD=${{ secrets.DB_PASSWORD }}|g' .env
+            # Update .env with secrets
+            if [ -f ".env" ]; then
+              sed -i "s|APP_URL=.*|APP_URL=${{ secrets.APP_URL }}|g" .env
+              sed -i "s|DB_HOST=.*|DB_HOST=${{ secrets.DB_HOST }}|g" .env
+              sed -i "s|DB_PORT=.*|DB_PORT=${{ secrets.DB_PORT }}|g" .env
+              sed -i "s|DB_DATABASE=.*|DB_DATABASE=${{ secrets.DB_DATABASE }}|g" .env
+              sed -i "s|DB_USERNAME=.*|DB_USERNAME=${{ secrets.DB_USERNAME }}|g" .env
+              sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=${{ secrets.DB_PASSWORD }}|g" .env
+            fi
 
             echo "✓ Generating application key..."
-            php artisan key:generate --force 2>/dev/null || true
+            php artisan key:generate --force 2>/dev/null || echo "  (Key may exist)"
 
             echo "✓ Running database migrations..."
-            php artisan migrate --force 2>/dev/null || true
+            php artisan migrate --force 2>/dev/null || echo "  (Migrations may have run)"
 
             echo "✓ Clearing caches..."
             php artisan config:cache 2>/dev/null || true
@@ -105,11 +86,11 @@ jobs:
 
             echo "✓ Setting file permissions..."
             chmod -R 755 $DEPLOY_PATH/public_html
-            chmod -R 775 $DEPLOY_PATH/public_html/storage
-            chmod -R 775 $DEPLOY_PATH/public_html/bootstrap/cache
+            [ -d "$DEPLOY_PATH/public_html/storage" ] && chmod -R 775 $DEPLOY_PATH/public_html/storage
+            [ -d "$DEPLOY_PATH/public_html/bootstrap/cache" ] && chmod -R 775 $DEPLOY_PATH/public_html/bootstrap/cache
 
             echo ""
             echo "=============================="
-            echo "✓ Deployment Successful!"
+            echo "✓ Deployment Complete!"
             echo "API URL: https://api.scrapifyauctions.com"
             echo "=============================="
