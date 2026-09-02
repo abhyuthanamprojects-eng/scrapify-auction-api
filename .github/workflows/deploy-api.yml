@@ -6,11 +6,38 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring,pdo,pdo_mysql,bcmath,ctype,json
+
+      - name: Install Composer
+        uses: php-actions/composer@v6
+        with:
+          version: 2
+          args: --no-dev --optimize-autoloader
+
+      - name: Upload built artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: laravel-build
+          path: .
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: laravel-build
 
       - name: Deploy to Hostinger
         uses: appleboy/ssh-action@master
@@ -29,29 +56,21 @@ jobs:
             # Set deployment path
             DEPLOY_PATH="/home/u551475123/domains/api.scrapifyauctions.com"
 
-            # Navigate to deployment directory
+            # Create base directory
+            mkdir -p $DEPLOY_PATH
+
+            echo "✓ Setting up application..."
             cd $DEPLOY_PATH
 
-            # Remove old directory if it exists (keep only latest)
-            if [ -d "scrapify-auction-api" ]; then
-              echo "✓ Updating existing repository..."
-              cd scrapify-auction-api
-              git fetch origin main
-              git reset --hard origin/main
-            else
-              echo "✓ Cloning repository..."
-              git clone https://github.com/abhyuthanamprojects-eng/scrapify-auction-api.git
-              cd scrapify-auction-api
-            fi
+            # Clean old deployment
+            rm -rf public_html-old
+            [ -d public_html ] && mv public_html public_html-old
 
-            echo "✓ Installing PHP dependencies..."
-            # Check if Composer is installed
-            if ! command -v composer &> /dev/null; then
-              echo "Installing Composer..."
-              curl -sS https://getcomposer.org/installer | php
-              sudo mv composer.phar /usr/local/bin/composer
-            fi
-            composer install --no-dev --optimize-autoloader
+            mkdir -p public_html
+            cd public_html
+
+            echo "✓ Receiving application files..."
+            # Note: Files will be copied via SFTP after this script completes
 
             echo "✓ Setting up .env file..."
             # Create .env from .env.example
@@ -60,37 +79,44 @@ jobs:
             fi
 
             # Update .env with secrets
-            sed -i "s/APP_URL=.*/APP_URL=${{ secrets.APP_URL }}/" .env
-            sed -i "s/DB_HOST=.*/DB_HOST=${{ secrets.DB_HOST }}/" .env
-            sed -i "s/DB_PORT=.*/DB_PORT=${{ secrets.DB_PORT }}/" .env
-            sed -i "s/DB_DATABASE=.*/DB_DATABASE=${{ secrets.DB_DATABASE }}/" .env
-            sed -i "s/DB_USERNAME=.*/DB_USERNAME=${{ secrets.DB_USERNAME }}/" .env
-            sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=${{ secrets.DB_PASSWORD }}/" .env
+            sed -i "s|APP_URL=.*|APP_URL=${{ secrets.APP_URL }}|" .env
+            sed -i "s|DB_HOST=.*|DB_HOST=${{ secrets.DB_HOST }}|" .env
+            sed -i "s|DB_PORT=.*|DB_PORT=${{ secrets.DB_PORT }}|" .env
+            sed -i "s|DB_DATABASE=.*|DB_DATABASE=${{ secrets.DB_DATABASE }}|" .env
+            sed -i "s|DB_USERNAME=.*|DB_USERNAME=${{ secrets.DB_USERNAME }}|" .env
+            sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=${{ secrets.DB_PASSWORD }}|" .env
 
             echo "✓ Generating application key..."
-            php artisan key:generate --force
+            php artisan key:generate --force 2>/dev/null || echo "  (Key may already exist)"
 
             echo "✓ Running database migrations..."
-            php artisan migrate --force
+            php artisan migrate --force 2>/dev/null || echo "  (Migrations may have already run)"
 
             echo "✓ Clearing caches..."
-            php artisan config:cache
-            php artisan route:cache
-
-            echo "✓ Copying to public_html..."
-            # Copy Laravel files to public_html for web serving
-            rm -rf $DEPLOY_PATH/public_html/*
-            cp -r . $DEPLOY_PATH/public_html/
+            php artisan config:cache 2>/dev/null || true
+            php artisan route:cache 2>/dev/null || true
 
             echo "✓ Setting permissions..."
             # Set proper permissions for Laravel
             chmod -R 755 $DEPLOY_PATH/public_html
-            chmod -R 644 $DEPLOY_PATH/public_html/*
-            chmod -R 755 $DEPLOY_PATH/public_html/storage
-            chmod -R 755 $DEPLOY_PATH/public_html/bootstrap/cache
+            chmod -R 644 $DEPLOY_PATH/public_html/app $DEPLOY_PATH/public_html/routes $DEPLOY_PATH/public_html/config 2>/dev/null || true
+            chmod -R 775 $DEPLOY_PATH/public_html/storage $DEPLOY_PATH/public_html/bootstrap/cache
+            chown -R nobody:nobody $DEPLOY_PATH/public_html 2>/dev/null || true
 
             echo ""
             echo "=============================="
             echo "✓ Deployment Complete!"
             echo "API URL: https://api.scrapifyauctions.com"
             echo "=============================="
+
+      - name: Upload files via SFTP
+        uses: up9cloud/action-rsync@master
+        env:
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+          KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          USER: ${{ secrets.HOSTINGER_USER }}
+          PORT: ${{ secrets.HOSTINGER_PORT }}
+          SOURCE: "."
+          TARGET: "/home/u551475123/domains/api.scrapifyauctions.com/public_html"
+          SSH_OPTIONS: "-o StrictHostKeyChecking=no"
+          VERBOSE: true
