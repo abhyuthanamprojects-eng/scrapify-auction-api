@@ -494,7 +494,7 @@ class AuctionController extends Controller
                 'auction_id' => $auction->id,
                 'name' => $lot['name'] ?? sprintf('Lot %d', $i + 1),
                 'quantity' => $lot['quantity'] ?? null,
-                'uom' => $lot['uom'] ?? $auction->uom,
+                'uom' => $lot['uom'] ?? $lot['unit'] ?? $auction->uom ?? 'MT',
                 'reserve_price' => $lot['reserve_price'] ?? null,
             ]);
         }

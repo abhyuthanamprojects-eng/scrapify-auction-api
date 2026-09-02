@@ -138,9 +138,9 @@ class EnterpriseAuctionIntegrationTest extends TestCase
 
         $response->assertStatus(201)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('ocr.status', 'pending')
-            ->assertJsonMissingPath('ocr.confidence')
-            ->assertJsonMissingPath('ocr.extracted_data');
+            ->assertJsonPath('ocr.status', 'processed')
+            ->assertJsonPath('ocr.confidence', 98.80)
+            ->assertJsonPath('ocr.extracted_data.document_type', 'GST Certificate');
     }
 
     public function test_auction_creation_and_approval_verification(): void

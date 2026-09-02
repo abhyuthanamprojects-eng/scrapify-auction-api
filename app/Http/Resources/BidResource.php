@@ -15,6 +15,7 @@ class BidResource extends JsonResource
             'sub_lot_id' => $this->whenLoaded('lot', fn () => $this->lot?->code),
             'vendor_id' => $this->whenLoaded('vendor', fn () => $this->vendor->code, $this->vendor_id),
             'vendor_name' => $this->vendor_name,
+            'amount' => (float) $this->amount,
             'amount_inr' => (float) $this->amount,
             'is_proxy' => $this->is_proxy,
             'at' => $this->created_at?->toIso8601String(),

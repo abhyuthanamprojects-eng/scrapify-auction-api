@@ -24,6 +24,7 @@ class UserResource extends JsonResource
             ]),
             'vendor' => $this->whenLoaded('vendor', fn () => $this->vendor ? [
                 'id' => $this->vendor->code,
+                'code' => $this->vendor->code,
                 'company_name' => $this->vendor->company_name,
                 'status' => $this->vendor->status,
                 'can_bid' => $this->vendor->canBid(),
