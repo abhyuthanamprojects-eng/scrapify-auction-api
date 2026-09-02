@@ -39,7 +39,18 @@ jobs:
         with:
           name: laravel-build
 
-      - name: Deploy to Hostinger
+      - name: Deploy to Hostinger via SSH
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          port: ${{ secrets.HOSTINGER_PORT }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          source: "."
+          target: "/home/u551475123/domains/api.scrapifyauctions.com/deploy-temp"
+          strip_components: 0
+
+      - name: Setup and Verify Deployment
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOSTINGER_HOST }}
@@ -50,73 +61,55 @@ jobs:
             set -e
 
             echo "=============================="
-            echo "Deploying Laravel API"
+            echo "Finalizing Laravel API Deployment"
             echo "=============================="
 
-            # Set deployment path
             DEPLOY_PATH="/home/u551475123/domains/api.scrapifyauctions.com"
+            TEMP_PATH="$DEPLOY_PATH/deploy-temp"
 
-            # Create base directory
-            mkdir -p $DEPLOY_PATH
+            # Backup current deployment
+            if [ -d "$DEPLOY_PATH/public_html" ]; then
+              echo "✓ Backing up current deployment..."
+              rm -rf $DEPLOY_PATH/public_html-old
+              mv $DEPLOY_PATH/public_html $DEPLOY_PATH/public_html-old
+            fi
 
-            echo "✓ Setting up application..."
-            cd $DEPLOY_PATH
+            # Move new files to public_html
+            echo "✓ Activating new deployment..."
+            mv $TEMP_PATH $DEPLOY_PATH/public_html
 
-            # Clean old deployment
-            rm -rf public_html-old
-            [ -d public_html ] && mv public_html public_html-old
-
-            mkdir -p public_html
-            cd public_html
-
-            echo "✓ Receiving application files..."
-            # Note: Files will be copied via SFTP after this script completes
+            cd $DEPLOY_PATH/public_html
 
             echo "✓ Setting up .env file..."
-            # Create .env from .env.example
             if [ ! -f ".env" ]; then
               cp .env.example .env
             fi
 
-            # Update .env with secrets
-            sed -i "s|APP_URL=.*|APP_URL=${{ secrets.APP_URL }}|" .env
-            sed -i "s|DB_HOST=.*|DB_HOST=${{ secrets.DB_HOST }}|" .env
-            sed -i "s|DB_PORT=.*|DB_PORT=${{ secrets.DB_PORT }}|" .env
-            sed -i "s|DB_DATABASE=.*|DB_DATABASE=${{ secrets.DB_DATABASE }}|" .env
-            sed -i "s|DB_USERNAME=.*|DB_USERNAME=${{ secrets.DB_USERNAME }}|" .env
-            sed -i "s|DB_PASSWORD=.*|DB_PASSWORD=${{ secrets.DB_PASSWORD }}|" .env
+            # Update .env with secrets using proper escaping
+            sed -i 's|APP_URL=.*|APP_URL=${{ secrets.APP_URL }}|g' .env
+            sed -i 's|DB_HOST=.*|DB_HOST=${{ secrets.DB_HOST }}|g' .env
+            sed -i 's|DB_PORT=.*|DB_PORT=${{ secrets.DB_PORT }}|g' .env
+            sed -i 's|DB_DATABASE=.*|DB_DATABASE=${{ secrets.DB_DATABASE }}|g' .env
+            sed -i 's|DB_USERNAME=.*|DB_USERNAME=${{ secrets.DB_USERNAME }}|g' .env
+            sed -i 's|DB_PASSWORD=.*|DB_PASSWORD=${{ secrets.DB_PASSWORD }}|g' .env
 
             echo "✓ Generating application key..."
-            php artisan key:generate --force 2>/dev/null || echo "  (Key may already exist)"
+            php artisan key:generate --force 2>/dev/null || true
 
             echo "✓ Running database migrations..."
-            php artisan migrate --force 2>/dev/null || echo "  (Migrations may have already run)"
+            php artisan migrate --force 2>/dev/null || true
 
             echo "✓ Clearing caches..."
             php artisan config:cache 2>/dev/null || true
             php artisan route:cache 2>/dev/null || true
 
-            echo "✓ Setting permissions..."
-            # Set proper permissions for Laravel
+            echo "✓ Setting file permissions..."
             chmod -R 755 $DEPLOY_PATH/public_html
-            chmod -R 644 $DEPLOY_PATH/public_html/app $DEPLOY_PATH/public_html/routes $DEPLOY_PATH/public_html/config 2>/dev/null || true
-            chmod -R 775 $DEPLOY_PATH/public_html/storage $DEPLOY_PATH/public_html/bootstrap/cache
-            chown -R nobody:nobody $DEPLOY_PATH/public_html 2>/dev/null || true
+            chmod -R 775 $DEPLOY_PATH/public_html/storage
+            chmod -R 775 $DEPLOY_PATH/public_html/bootstrap/cache
 
             echo ""
             echo "=============================="
-            echo "✓ Deployment Complete!"
+            echo "✓ Deployment Successful!"
             echo "API URL: https://api.scrapifyauctions.com"
             echo "=============================="
-
-      - name: Upload files via SFTP
-        uses: up9cloud/action-rsync@master
-        env:
-          HOST: ${{ secrets.HOSTINGER_HOST }}
-          KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          USER: ${{ secrets.HOSTINGER_USER }}
-          PORT: ${{ secrets.HOSTINGER_PORT }}
-          SOURCE: "."
-          TARGET: "/home/u551475123/domains/api.scrapifyauctions.com/public_html"
-          SSH_OPTIONS: "-o StrictHostKeyChecking=no"
-          VERBOSE: true
