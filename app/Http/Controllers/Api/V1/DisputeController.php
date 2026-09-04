@@ -62,11 +62,25 @@ class DisputeController extends Controller
             return response()->json(['success' => false, 'message' => 'Vendor profile required to raise a dispute.'], 403);
         }
 
+        // Normalize aliases from mobile and web apps
+        $input = $request->all();
+        if (! isset($input['title']) && isset($input['subject'])) {
+            $input['title'] = $input['subject'];
+        }
+        if (! isset($input['claim_amount']) && isset($input['claimed_amount'])) {
+            $input['claim_amount'] = $input['claimed_amount'];
+        }
+        if (! isset($input['severity'])) {
+            $input['severity'] = 'Medium';
+        }
+
+        $request->merge($input);
+
         $validated = $request->validate([
-            'auction_id' => 'nullable|exists:auctions,id',
-            'order_id' => 'nullable|exists:orders,id',
+            'auction_id' => 'nullable',
+            'order_id' => 'nullable',
             'category' => 'required|string',
-            'severity' => 'required|in:Low,Medium,High,Critical',
+            'severity' => 'sometimes|in:Low,Medium,High,Critical',
             'title' => 'required|string|max:255',
             'description' => 'required|string',
             'claim_amount' => 'nullable|numeric|min:0',
@@ -75,16 +89,30 @@ class DisputeController extends Controller
             'evidence.*.file_url' => 'required|string',
         ]);
 
+        $orderId = null;
+        if (! empty($validated['order_id'])) {
+            $orderId = \App\Models\Order::where('id', $validated['order_id'])
+                ->orWhere('code', $validated['order_id'])
+                ->value('id');
+        }
+
+        $auctionId = null;
+        if (! empty($validated['auction_id'])) {
+            $auctionId = \App\Models\Auction::where('id', $validated['auction_id'])
+                ->orWhere('code', $validated['auction_id'])
+                ->value('id');
+        }
+
         $code = 'DISP-'.now()->year.'-'.str_pad((string) (Dispute::count() + 1), 4, '0', STR_PAD_LEFT);
 
         $dispute = Dispute::create([
             'code' => $code,
-            'auction_id' => $validated['auction_id'] ?? null,
-            'order_id' => $validated['order_id'] ?? null,
+            'auction_id' => $auctionId,
+            'order_id' => $orderId,
             'vendor_id' => $vendor->id,
             'raised_by_user_id' => $user->id,
             'category' => $validated['category'],
-            'severity' => $validated['severity'],
+            'severity' => $validated['severity'] ?? 'Medium',
             'title' => $validated['title'],
             'description' => $validated['description'],
             'claim_amount' => $validated['claim_amount'] ?? 0,

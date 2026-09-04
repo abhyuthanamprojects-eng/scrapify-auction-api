@@ -35,7 +35,7 @@ class AuctionController extends Controller
         $isStaff = $user && $user->hasPermission('auctions.approve');
 
         $q = Auction::query()
-            ->with(['category', 'photos', 'lots'])
+            ->with(['organization', 'category', 'photos', 'lots'])
             ->withCount('interestedBidders');
 
         if (! $isStaff) {
@@ -88,7 +88,7 @@ class AuctionController extends Controller
     public function show(string $code): AuctionResource
     {
         $auction = Auction::where('code', $code)
-            ->with(['category', 'photos', 'lots', 'extensions', 'bids' => fn ($b) => $b->latest('id')->limit(50)])
+            ->with(['organization', 'category', 'photos', 'lots', 'extensions', 'bids' => fn ($b) => $b->with('vendor')->latest('id')->limit(50)])
             ->withCount('interestedBidders')
             ->firstOrFail();
 

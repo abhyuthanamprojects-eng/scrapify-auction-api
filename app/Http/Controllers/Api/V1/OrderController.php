@@ -56,12 +56,20 @@ class OrderController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $input = $request->all();
+        if (! isset($input['auction_id']) && isset($input['auction_code'])) {
+            $input['auction_id'] = $input['auction_code'];
+        }
+        $request->merge($input);
+
         $data = $request->validate([
-            'auction_id' => ['required', 'string', 'exists:auctions,code'],
-            'lot' => ['sometimes', 'nullable', 'string', 'exists:lots,code'],
+            'auction_id' => ['required'],
+            'lot' => ['sometimes', 'nullable'],
         ]);
 
-        $auction = Auction::where('code', $data['auction_id'])->firstOrFail();
+        $auction = Auction::where('code', $data['auction_id'])
+            ->orWhere('id', $data['auction_id'])
+            ->firstOrFail();
 
         abort_unless($auction->status === 'closed', 422, 'Orders are only raised for closed auctions.');
         abort_unless($auction->winner_vendor_id, 422, 'This auction has no winning bidder.');
