@@ -101,6 +101,11 @@ Route::prefix('v1')->group(function () {
 
         /* vendors */
         Route::post('vendors/register', [VendorController::class, 'register']);
+        Route::post('vendors/save-step', [VendorController::class, 'saveStep']);
+        Route::post('vendors/{code}/submit-kyc', [VendorController::class, 'submitKyc']);
+        Route::post('vendors/{code}/resubmit-kyc', [VendorController::class, 'resubmitKyc']);
+        Route::get('vendors/{code}/kyc-status', [VendorController::class, 'kycStatus']);
+        Route::get('vendors/{code}/documents/{id}/download', [VendorController::class, 'downloadDocument']);
         Route::post('vendors/invitations', [VendorController::class, 'invite'])
             ->middleware('permission:vendors.approve');
         Route::post('vendors/{code}/documents', [VendorController::class, 'uploadDocument']);
@@ -122,11 +127,11 @@ Route::prefix('v1')->group(function () {
 
         /* auctions — creation and the approval workflow */
         Route::post('auctions', [AuctionController::class, 'store'])
-            ->middleware('permission:auctions.create');
+            ->middleware(['permission:auctions.create', 'kyc.verified']);
         Route::patch('auctions/{code}', [AuctionController::class, 'update'])
             ->middleware('permission:auctions.update');
         Route::post('auctions/{code}/submit', [AuctionController::class, 'submit'])
-            ->middleware('permission:auctions.submit');
+            ->middleware(['permission:auctions.submit', 'kyc.verified']);
         Route::post('auctions/{code}/approve', [AuctionController::class, 'approve'])
             ->middleware('permission:auctions.approve');
         Route::post('auctions/{code}/send-back', [AuctionController::class, 'sendBack'])
@@ -154,9 +159,9 @@ Route::prefix('v1')->group(function () {
 
         /* bidding */
         Route::post('auctions/{code}/bids', [BidController::class, 'store'])
-            ->middleware('permission:bids.place');
+            ->middleware(['permission:bids.place', 'kyc.verified']);
         Route::post('auctions/{code}/proxy-bid', [BidController::class, 'setProxy'])
-            ->middleware('permission:bids.proxy');
+            ->middleware(['permission:bids.proxy', 'kyc.verified']);
         Route::delete('auctions/{code}/proxy-bid', [BidController::class, 'cancelProxy'])
             ->middleware('permission:bids.proxy');
         Route::get('my-bids', [BidController::class, 'myBids']);
@@ -175,7 +180,7 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:wallet.topup');
         Route::get('emd', [WalletController::class, 'emdList']);
         Route::post('emd/lock', [WalletController::class, 'lockEmd'])
-            ->middleware('permission:emd.lock,emd.manage');
+            ->middleware(['permission:emd.lock,emd.manage', 'kyc.verified']);
         Route::post('emd/{id}/release', [WalletController::class, 'releaseEmd']);
         Route::post('emd/{id}/forfeit', [WalletController::class, 'forfeitEmd'])
             ->middleware('permission:emd.manage');
@@ -197,7 +202,8 @@ Route::prefix('v1')->group(function () {
         Route::get('auctions/{code}/rfx', [RfxController::class, 'index']);
         Route::post('auctions/{code}/rfx', [RfxController::class, 'store'])
             ->middleware('permission:auctions.create');
-        Route::post('auctions/{code}/rfx/{packageId}/submit', [RfxController::class, 'submitResponse']);
+        Route::post('auctions/{code}/rfx/{packageId}/submit', [RfxController::class, 'submitResponse'])
+            ->middleware(['kyc.verified']);
         Route::post('auctions/{code}/rfx/responses/{responseId}/evaluate', [RfxController::class, 'evaluateResponse'])
             ->middleware('permission:auctions.approve');
 

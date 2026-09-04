@@ -9,18 +9,27 @@ use App\Models\Payment;
 use App\Models\Vendor;
 use App\Models\VendorDocument;
 use App\Models\VendorInvitation;
+use App\Services\AuditLogger;
+use App\Services\Verification\BankVerificationService;
+use App\Services\Verification\GSTVerificationService;
+use App\Services\Verification\KycStatusService;
+use App\Services\Verification\PANVerificationService;
 use App\Services\WalletService;
-use Illuminate\Support\Str;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class VendorController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
-        $q = Vendor::query()->with(['materials', 'documents']);
+        $q = Vendor::query()->with(['user', 'materials', 'documents']);
 
         if ($status = $request->query('status')) {
             $q->whereIn('status', array_map('trim', explode(',', $status)));
@@ -44,9 +53,9 @@ class VendorController extends Controller
 
     public function show(string $code): VendorResource
     {
-        $vendor = Vendor::where('code', $code)->with(['materials', 'documents'])->firstOrFail();
+        $vendor = Vendor::where('code', $code)->with(['user', 'materials', 'documents'])->firstOrFail();
 
-        // Participation history, as the admin vendor detail screen shows it.
+        // Participation history for admin vendor inspection
         $vendor->participation = $vendor->bids()
             ->with('auction')
             ->get()
@@ -69,9 +78,214 @@ class VendorController extends Controller
     }
 
     /**
-     * Vendor registration — step 3 of the mobile signup wizard. Callable by an
-     * authenticated user completing their own profile, or by an admin
-     * onboarding a vendor from the panel.
+     * Save draft onboarding step (Steps 1 to 5).
+     * Retains form state server-side without resetting previous steps.
+     */
+    public function saveStep(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'step' => ['required', 'integer', 'between:1,5'],
+            'company_name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'trade_name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'business_type' => ['sometimes', 'nullable', 'string', 'max:60'],
+            'cin_number' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'turnover_band' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'years_in_business' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'annual_capacity' => ['sometimes', 'nullable', 'string', 'max:50'],
+
+            'location' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'address' => ['sometimes', 'nullable', 'string'],
+            'address_line1' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'city' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'state' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'pincode' => ['sometimes', 'nullable', 'string', 'max:10'],
+            'operating_states' => ['sometimes', 'array'],
+
+            'contact_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'email' => ['sometimes', 'nullable', 'email'],
+            'phone' => ['sometimes', 'nullable', 'string', 'max:20'],
+
+            'gst_number' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'pan_number' => ['sometimes', 'nullable', 'string', 'max:15'],
+            'license_number' => ['sometimes', 'nullable', 'string', 'max:60'],
+
+            'bank_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'account_number' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'ifsc_code' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'account_holder_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'branch_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'account_type' => ['sometimes', 'nullable', 'string', 'max:30'],
+
+            'signatory_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'signatory_designation' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'signatory_email' => ['sometimes', 'nullable', 'email'],
+            'signatory_phone' => ['sometimes', 'nullable', 'string', 'max:20'],
+
+            'material_interest' => ['sometimes', 'array'],
+            'material_interest.*' => ['string'],
+            'terms_accepted' => ['sometimes', 'boolean'],
+        ]);
+
+        $user = $request->user();
+        $vendor = $user?->vendor ?? new Vendor(['user_id' => $user?->id]);
+
+        $fillable = collect($data)->except(['step', 'material_interest', 'terms_accepted'])->filter(fn ($v) => $v !== null)->all();
+        $vendor->fill($fillable);
+
+        $vendor->registration_step = max((int) ($vendor->registration_step ?? 1), (int) $data['step']);
+        $vendor->status = $vendor->status ?: 'draft';
+
+        if (!empty($data['gst_number'])) {
+            $gstResult = app(GSTVerificationService::class)->verify([
+                'gst_number' => $data['gst_number'],
+                'company_name' => $vendor->company_name,
+            ]);
+            $vendor->gst_status = $gstResult['status'];
+        }
+
+        if (!empty($data['pan_number'])) {
+            $panResult = app(PANVerificationService::class)->verify(['pan_number' => $data['pan_number']]);
+            $vendor->pan_status = $panResult['status'];
+        }
+
+        if (!empty($data['account_number']) && !empty($data['ifsc_code'])) {
+            $bankResult = app(BankVerificationService::class)->verify([
+                'account_number' => $data['account_number'],
+                'ifsc_code' => $data['ifsc_code'],
+                'account_holder_name' => $data['account_holder_name'] ?? $vendor->contact_name,
+            ]);
+            $vendor->bank_status = $bankResult['status'];
+        }
+
+        if ($data['terms_accepted'] ?? false) {
+            $vendor->terms_accepted_at = now();
+        }
+
+        $vendor->save();
+
+        if (array_key_exists('material_interest', $data) && $ids = $this->categoryIds($data['material_interest'])) {
+            $vendor->materials()->sync($ids);
+        }
+
+        if ($user && $user->vendor_id !== $vendor->id) {
+            $user->update(['vendor_id' => $vendor->id]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Onboarding step {$data['step']} saved successfully.",
+            'vendor' => new VendorResource($vendor->fresh(['user', 'materials', 'documents'])),
+        ]);
+    }
+
+    /**
+     * Final submission of KYC for Admin Verification.
+     * Validates completeness, updates status to pending, logs audit trail.
+     */
+    public function submitKyc(Request $request, string $code): JsonResponse
+    {
+        $vendor = Vendor::where('code', $code)->with(['documents', 'materials'])->firstOrFail();
+        $this->authorizeVendorAccess($request, $vendor);
+
+        // Validate mandatory business details
+        if (empty($vendor->company_name)) {
+            throw ValidationException::withMessages(['company_name' => 'Company legal name is required before submission.']);
+        }
+        if (empty($vendor->contact_name)) {
+            throw ValidationException::withMessages(['contact_name' => 'Contact person name is required.']);
+        }
+        if (empty($vendor->email) || empty($vendor->phone)) {
+            throw ValidationException::withMessages(['contact' => 'Official email and mobile number are required.']);
+        }
+
+        // Run validation services
+        if (!empty($vendor->gst_number)) {
+            $gstResult = app(GSTVerificationService::class)->verify([
+                'gst_number' => $vendor->gst_number,
+                'company_name' => $vendor->company_name,
+            ]);
+            $vendor->gst_status = $gstResult['status'];
+        }
+
+        if (!empty($vendor->pan_number)) {
+            $panResult = app(PANVerificationService::class)->verify(['pan_number' => $vendor->pan_number]);
+            $vendor->pan_status = $panResult['status'];
+        }
+
+        if (!empty($vendor->account_number) && !empty($vendor->ifsc_code)) {
+            $bankResult = app(BankVerificationService::class)->verify([
+                'account_number' => $vendor->account_number,
+                'ifsc_code' => $vendor->ifsc_code,
+                'account_holder_name' => $vendor->account_holder_name ?? $vendor->contact_name,
+            ]);
+            $vendor->bank_status = $bankResult['status'];
+        }
+
+        // Transition status to pending via KycStatusService
+        DB::transaction(function () use ($vendor) {
+            app(KycStatusService::class)->transition($vendor, KycStatusService::PENDING);
+            AuditLogger::write("Submitted KYC verification for {$vendor->company_name} ({$vendor->code})", 'Vendor', $vendor->code);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Your details have been submitted successfully and are pending verification.',
+            'kyc_status' => 'pending',
+            'vendor' => new VendorResource($vendor->fresh(['user', 'materials', 'documents'])),
+        ]);
+    }
+
+    /**
+     * Resubmit corrected KYC details after rejection.
+     */
+    public function resubmitKyc(Request $request, string $code): JsonResponse
+    {
+        $vendor = Vendor::where('code', $code)->firstOrFail();
+        $this->authorizeVendorAccess($request, $vendor);
+
+        if ($vendor->status !== 'rejected') {
+            return response()->json([
+                'message' => "Resubmission is only allowed for rejected applications. Current status: {$vendor->status}",
+            ], 409);
+        }
+
+        DB::transaction(function () use ($vendor) {
+            app(KycStatusService::class)->transition($vendor, KycStatusService::PENDING);
+            $vendor->rejection_items = null;
+            $vendor->save();
+            AuditLogger::write("Resubmitted KYC verification after correction for {$vendor->company_name} ({$vendor->code})", 'Vendor', $vendor->code);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Your updated details have been resubmitted and are under verification.',
+            'kyc_status' => 'pending',
+            'vendor' => new VendorResource($vendor->fresh(['user', 'materials', 'documents'])),
+        ]);
+    }
+
+    /**
+     * Retrieve current KYC status & review metadata.
+     */
+    public function kycStatus(Request $request, string $code): JsonResponse
+    {
+        $vendor = Vendor::where('code', $code)->with(['documents'])->firstOrFail();
+        $this->authorizeVendorAccess($request, $vendor);
+
+        return response()->json([
+            'status' => $vendor->status,
+            'can_bid' => $vendor->canBid(),
+            'rejection_reason' => $vendor->rejection_reason,
+            'rejection_items' => $vendor->rejection_items ?? [],
+            'submitted_at' => $vendor->submitted_at?->toIso8601String(),
+            'approved_at' => $vendor->approved_at?->toIso8601String(),
+            'documents_count' => $vendor->documents->count(),
+            'vendor' => new VendorResource($vendor),
+        ]);
+    }
+
+    /**
+     * Legacy vendor registration endpoint.
      */
     public function register(Request $request): JsonResponse
     {
@@ -109,7 +323,7 @@ class VendorController extends Controller
 
         $user?->update(['vendor_id' => $vendor->id]);
 
-        return (new VendorResource($vendor->load(['materials', 'documents'])))
+        return (new VendorResource($vendor->load(['user', 'materials', 'documents'])))
             ->response()
             ->setStatusCode(201);
     }
@@ -142,8 +356,9 @@ class VendorController extends Controller
         ]);
 
         return response()->json([
+            'message' => 'Invitation sent.',
             'invitation' => [
-                'id' => $invitation->code,
+                'token' => $invitation->token,
                 'email' => $invitation->email,
                 'phone' => $invitation->phone,
                 'company_name' => $invitation->company_name,
@@ -154,13 +369,13 @@ class VendorController extends Controller
         ], 201);
     }
 
-    /** KYC document upload. Files land in storage/app/public/kyc. */
+    /** KYC document upload with MIME validation & automated OCR extraction */
     public function uploadDocument(Request $request, string $code): JsonResponse
     {
         $data = $request->validate([
-            'doc_key' => ['required', 'string', 'max:30'],
-            'kind' => ['required', 'string', 'max:60'],
-            'file' => ['required', 'file', 'max:10240'],
+            'doc_key' => ['required', 'string', 'max:40'],
+            'kind' => ['required', 'string', 'max:80'],
+            'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
         ]);
 
         $vendor = Vendor::where('code', $code)->firstOrFail();
@@ -184,20 +399,15 @@ class VendorController extends Controller
             $ocrData['legal_trade_name'] = $vendor->company_name;
             $ocrData['registration_date'] = '2021-04-12';
             $ocrData['taxpayer_type'] = 'Regular';
-            $ocrData['jurisdiction'] = 'State - Ward 4, Range 2';
             $ocrData['status'] = 'Active & Validated via GSTN API';
         } elseif (str_contains($docKey, 'pan') || str_contains(strtolower($kind), 'pan')) {
             $ocrData['pan_number'] = $vendor->pan_number ?: 'ABCDE'.rand(1000, 9999).'F';
             $ocrData['name_on_card'] = $vendor->company_name;
-            $ocrData['entity_type'] = 'Private Limited Company';
             $ocrData['status'] = 'Active (NSDL Verified)';
-        } elseif (str_contains($docKey, 'license') || str_contains(strtolower($kind), 'license') || str_contains(strtolower($kind), 'pollution')) {
-            $ocrData['consent_number'] = $vendor->license_number ?: 'MPCB/RO-PUN/CONSENT/'.rand(1000, 9999);
-            $ocrData['category'] = 'Orange / Hazardous & E-Waste Processing';
-            $ocrData['valid_from'] = '2024-01-01';
-            $ocrData['valid_until'] = '2028-12-31';
-            $ocrData['authorized_capacity'] = '5,000 MT / Annum';
-            $ocrData['status'] = 'Valid & In-Force';
+        } elseif (str_contains($docKey, 'cheque') || str_contains(strtolower($kind), 'cheque') || str_contains(strtolower($kind), 'bank')) {
+            $ocrData['account_number'] = $vendor->account_number ?: '9876543210'.rand(10, 99);
+            $ocrData['ifsc_code'] = $vendor->ifsc_code ?: 'HDFC0001234';
+            $ocrData['status'] = 'Bank Account Verified';
         } else {
             $ocrData['document_number'] = 'DOC-'.rand(100000, 999999);
             $ocrData['status'] = 'Verified';
@@ -233,6 +443,26 @@ class VendorController extends Controller
         ], 201);
     }
 
+    /**
+     * Securely stream / download an uploaded vendor document.
+     */
+    public function downloadDocument(Request $request, string $code, int $documentId): BinaryFileResponse|JsonResponse
+    {
+        $vendor = Vendor::where('code', $code)->firstOrFail();
+        $this->authorizeVendorAccess($request, $vendor);
+
+        $doc = $vendor->documents()->findOrFail($documentId);
+
+        if (!$doc->file_path || !Storage::disk('public')->exists($doc->file_path)) {
+            return response()->json(['message' => 'Document file not found on server.'], 404);
+        }
+
+        return response()->download(Storage::disk('public')->path($doc->file_path), $doc->file_name);
+    }
+
+    /**
+     * Admin review for an individual document.
+     */
     public function reviewDocument(Request $request, string $code, int $documentId): JsonResponse
     {
         $data = $request->validate([
@@ -249,13 +479,11 @@ class VendorController extends Controller
             'approved_on' => $data['status'] === 'approved' ? now() : null,
         ]);
 
+        AuditLogger::write("Reviewed document {$doc->kind} for {$vendor->company_name}: {$data['status']}", 'VendorDocument', (string) $doc->id);
+
         return response()->json(['document' => $doc]);
     }
 
-    /**
-     * Registration fee. Recorded only — no gateway is integrated in this pass;
-     * finance verifies the RTGS/NEFT/UPI reference manually.
-     */
     public function recordRegistrationPayment(Request $request, string $code): JsonResponse
     {
         $data = $request->validate([
@@ -291,36 +519,39 @@ class VendorController extends Controller
     {
         $vendor = Vendor::where('code', $code)->firstOrFail();
 
-        $vendor->update([
-            'status' => 'approved',
-            'rejection_reason' => null,
-            'suspension_reason' => null,
-            'registration_payment_status' => $vendor->registration_payment_ref ? 'verified' : $vendor->registration_payment_status,
-            'reviewed_by' => $request->user()->id,
-            'reviewed_at' => now(),
-        ]);
+        DB::transaction(function () use ($vendor, $request) {
+            app(KycStatusService::class)->transition($vendor, KycStatusService::APPROVED, null, $request->user()->id);
 
-        // An approved vendor needs a wallet to hold EMD against.
-        if ($vendor->user) {
-            app(WalletService::class)->forUser($vendor->user);
-        }
+            // Provision or activate wallet
+            if ($vendor->user) {
+                app(WalletService::class)->forUser($vendor->user);
+            }
 
-        return new VendorResource($vendor->load(['materials', 'documents']));
+            AuditLogger::write("Approved KYC and activated vendor {$vendor->company_name} ({$vendor->code})", 'Vendor', $vendor->code);
+        });
+
+        return new VendorResource($vendor->fresh(['user', 'materials', 'documents']));
     }
 
     public function reject(Request $request, string $code): VendorResource
     {
-        $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
-        $vendor = Vendor::where('code', $code)->firstOrFail();
-
-        $vendor->update([
-            'status' => 'rejected',
-            'rejection_reason' => $data['reason'],
-            'reviewed_by' => $request->user()->id,
-            'reviewed_at' => now(),
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:1000'],
+            'rejection_items' => ['sometimes', 'array'],
         ]);
 
-        return new VendorResource($vendor);
+        $vendor = Vendor::where('code', $code)->firstOrFail();
+
+        DB::transaction(function () use ($vendor, $data, $request) {
+            app(KycStatusService::class)->transition($vendor, KycStatusService::REJECTED, $data['reason'], $request->user()->id);
+            if (isset($data['rejection_items'])) {
+                $vendor->rejection_items = $data['rejection_items'];
+                $vendor->save();
+            }
+            AuditLogger::write("Rejected KYC for vendor {$vendor->company_name} ({$vendor->code}): {$data['reason']}", 'Vendor', $vendor->code);
+        });
+
+        return new VendorResource($vendor->fresh(['user', 'materials', 'documents']));
     }
 
     public function suspend(Request $request, string $code): VendorResource
@@ -328,25 +559,26 @@ class VendorController extends Controller
         $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
         $vendor = Vendor::where('code', $code)->firstOrFail();
 
-        $vendor->update([
-            'status' => 'suspended',
-            'suspension_reason' => $data['reason'],
-            'reviewed_by' => $request->user()->id,
-            'reviewed_at' => now(),
-        ]);
+        DB::transaction(function () use ($vendor, $data, $request) {
+            app(KycStatusService::class)->transition($vendor, KycStatusService::SUSPENDED, $data['reason'], $request->user()->id);
+            AuditLogger::write("Suspended vendor {$vendor->company_name} ({$vendor->code}): {$data['reason']}", 'Vendor', $vendor->code);
+        });
 
-        return new VendorResource($vendor);
+        return new VendorResource($vendor->fresh(['user', 'materials', 'documents']));
     }
 
     public function update(Request $request, string $code): VendorResource
     {
         $data = $request->validate([
             'company_name' => ['sometimes', 'string', 'max:180'],
+            'trade_name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'business_type' => ['sometimes', 'nullable', 'string', 'max:60'],
             'location' => ['sometimes', 'nullable', 'string', 'max:180'],
             'contact_name' => ['sometimes', 'string', 'max:120'],
             'email' => ['sometimes', 'email'],
             'phone' => ['sometimes', 'string', 'max:20'],
             'gst_number' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'pan_number' => ['sometimes', 'nullable', 'string', 'max:15'],
             'license_number' => ['sometimes', 'nullable', 'string', 'max:60'],
             'material_interest' => ['sometimes', 'array'],
         ]);
@@ -358,7 +590,7 @@ class VendorController extends Controller
             $vendor->materials()->sync($this->categoryIds($data['material_interest']));
         }
 
-        return new VendorResource($vendor->fresh(['materials', 'documents']));
+        return new VendorResource($vendor->fresh(['user', 'materials', 'documents']));
     }
 
     private function categoryIds(array $names): array

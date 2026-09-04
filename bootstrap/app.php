@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'permission' => \App\Http\Middleware\EnsurePermission::class,
+            'kyc.verified' => \App\Http\Middleware\EnsureKycVerified::class,
         ]);
 
         // Every API route gets an optional user resolve so public endpoints can

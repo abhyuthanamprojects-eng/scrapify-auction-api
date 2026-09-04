@@ -17,6 +17,10 @@ class Vendor extends Model
     protected $casts = [
         'terms_accepted_at' => 'datetime',
         'reviewed_at' => 'datetime',
+        'submitted_at' => 'datetime',
+        'approved_at' => 'datetime',
+        'operating_states' => 'array',
+        'rejection_items' => 'array',
     ];
 
     protected static string $codePrefix = 'V-';
