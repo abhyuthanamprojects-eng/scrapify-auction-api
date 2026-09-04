@@ -69,7 +69,17 @@ class AuctionResource extends JsonResource
             'closed_at' => $this->closed_at?->toIso8601String(),
             'final_price_inr' => $this->final_price !== null ? (float) $this->final_price : null,
             'winner' => $this->winner_name,
+            'winner_vendor_id' => $this->winner_vendor_id,
+            'is_reserve_met' => $this->status === 'closed'
+                ? ($this->review_comment !== 'Reserve price not met' && ($this->winner_vendor_id !== null || $this->reserve_na || $this->reserve_price === null))
+                : null,
             'interested_count' => $this->whenCounted('interestedBidders'),
+            'allowed_actions' => [
+                'can_edit' => in_array($this->status, ['draft', 'sent_back'], true),
+                'can_submit' => in_array($this->status, ['draft', 'sent_back'], true),
+                'can_bid' => $this->status === 'live',
+                'can_join' => in_array($this->status, ['published', 'live'], true),
+            ],
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

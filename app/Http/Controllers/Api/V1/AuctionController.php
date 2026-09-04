@@ -104,6 +104,19 @@ class AuctionController extends Controller
         $data = $this->validated($request);
         $user = $request->user();
 
+        $isStaff = $user->hasPermission('auctions.approve') || $user->hasPermission('auctions.create_any');
+        $direction = $data['direction'] ?? 'forward';
+
+        if (! $isStaff) {
+            $role = $user->role;
+            if ($direction === 'forward' && $role === 'buyer') {
+                abort(403, 'Only verified sellers or operations staff can create forward scrap disposal auctions.');
+            }
+            if ($direction === 'reverse' && $role === 'seller') {
+                abort(403, 'Only verified buyers or procurement staff can create reverse procurement auctions.');
+            }
+        }
+
         $auction = Auction::create(array_merge($this->attributes($data), [
             'status' => $data['status'] ?? 'draft',
             'submitted_by' => $user->id,
@@ -290,12 +303,20 @@ class AuctionController extends Controller
             ->orderByDesc('id')
             ->first();
 
+        $isReserveMet = true;
+        if (! $auction->isReverse() && $auction->reserve_price && ! $auction->reserve_na && $winning) {
+            if ((float) $winning->amount < (float) $auction->reserve_price) {
+                $isReserveMet = false;
+            }
+        }
+
         $auction->update([
             'status' => 'closed',
             'closed_at' => now(),
             'final_price' => $winning?->amount ?? $auction->current_highest,
-            'winner_vendor_id' => $winning?->vendor_id,
-            'winner_name' => $winning?->vendor_name,
+            'winner_vendor_id' => $isReserveMet ? $winning?->vendor_id : null,
+            'winner_name' => $isReserveMet ? $winning?->vendor_name : null,
+            'review_comment' => ! $isReserveMet ? 'Reserve price not met' : $auction->review_comment,
         ]);
 
         foreach ($auction->lots as $lot) {

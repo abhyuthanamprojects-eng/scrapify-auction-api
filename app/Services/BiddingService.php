@@ -45,30 +45,54 @@ class BiddingService
                     ->firstOrFail();
             }
 
-            $this->assertBiddable($auction, $vendor);
+            $this->assertBiddable($auction, $vendor, $user);
+
+            $hasBids = $lot
+                ? Bid::where('lot_id', $lot->id)->exists()
+                : Bid::where('auction_id', $auction->id)->whereNull('lot_id')->exists();
 
             $current = $this->currentPrice($auction, $lot);
             $increment = (float) $auction->bid_increment ?: 0.0;
 
             if ($auction->isReverse()) {
-                // Reverse tender: each bid must undercut the standing L1.
-                $ceiling = $current - $increment;
-                if ($amount > $ceiling) {
-                    throw ValidationException::withMessages([
-                        'amount' => sprintf('Bid must be at most %s (current L1 %s less increment %s).', $ceiling, $current, $increment),
-                    ]);
+                // Reverse tender: first quote must be <= starting ceiling; subsequent bids must undercut L1.
+                $startCeiling = (float) ($lot?->reserve_price ?? $auction->starting_price ?? $auction->reserve_price ?? 0);
+                if (! $hasBids) {
+                    if ($startCeiling > 0 && $amount > $startCeiling) {
+                        throw ValidationException::withMessages([
+                            'amount' => sprintf('First quote must be at most the starting ceiling of %s.', $startCeiling),
+                        ]);
+                    }
+                } else {
+                    $ceiling = $current - $increment;
+                    if ($amount > $ceiling) {
+                        throw ValidationException::withMessages([
+                            'amount' => sprintf('Bid must be at most %s (current L1 %s less decrement %s).', $ceiling, $current, $increment),
+                        ]);
+                    }
                 }
+
                 if ($auction->reserve_price && ! $auction->reserve_na && $amount < (float) $auction->reserve_price) {
                     throw ValidationException::withMessages([
-                        'amount' => 'Bid is below the reserve floor.',
+                        'amount' => 'Bid is below the configured reserve floor.',
                     ]);
                 }
             } else {
-                $floor = $current + $increment;
-                if ($amount < $floor) {
-                    throw ValidationException::withMessages([
-                        'amount' => sprintf('Bid must be at least %s (current highest %s plus increment %s).', $floor, $current, $increment),
-                    ]);
+                // Forward Auction: first bid must be >= starting price; subsequent bids must exceed H1 + increment.
+                $startFloor = (float) ($lot?->reserve_price ?? $auction->starting_price ?? 0);
+                if (! $hasBids) {
+                    if ($startFloor > 0 && $amount < $startFloor) {
+                        throw ValidationException::withMessages([
+                            'amount' => sprintf('First bid must be at least the starting price of %s.', $startFloor),
+                        ]);
+                    }
+                } else {
+                    $floor = $current + $increment;
+                    if ($amount < $floor) {
+                        throw ValidationException::withMessages([
+                            'amount' => sprintf('Bid must be at least %s (current highest %s plus increment %s).', $floor, $current, $increment),
+                        ]);
+                    }
                 }
             }
 
@@ -90,6 +114,20 @@ class BiddingService
 
             $this->refreshTotals($auction, $lot);
 
+            // Anti-sniping: Auto-extend by 3 minutes if bid placed in the final 3 minutes
+            if ($auction->schedule_end && now()->lt($auction->schedule_end) && now()->diffInSeconds($auction->schedule_end, false) <= 180) {
+                $auction->update([
+                    'schedule_end' => $auction->schedule_end->addMinutes(3),
+                ]);
+                \App\Models\AuctionExtension::create([
+                    'auction_id' => $auction->id,
+                    'user_id' => $user?->id,
+                    'minutes' => 3,
+                    'reason' => 'Auto-extension triggered by bid within final 3 minutes (anti-sniping).',
+                ]);
+                broadcast(new \App\Events\AuctionStateChanged($auction, 'extended'));
+            }
+
             if ($previousLeader && $previousLeader->vendor_id !== $vendor->id) {
                 $this->notifications->outbid($previousLeader, $auction, $amount);
             }
@@ -108,7 +146,7 @@ class BiddingService
      */
     public function setProxy(Auction $auction, Vendor $vendor, ?User $user, float $max, ?int $lotId = null): ProxyBid
     {
-        $this->assertBiddable($auction, $vendor);
+        $this->assertBiddable($auction, $vendor, $user);
 
         return ProxyBid::updateOrCreate(
             ['auction_id' => $auction->id, 'lot_id' => $lotId, 'vendor_id' => $vendor->id],
@@ -214,7 +252,7 @@ class BiddingService
         ]);
     }
 
-    private function assertBiddable(Auction $auction, Vendor $vendor): void
+    private function assertBiddable(Auction $auction, Vendor $vendor, ?User $user = null): void
     {
         if ($auction->status !== 'live') {
             throw ValidationException::withMessages([
@@ -232,6 +270,37 @@ class BiddingService
             throw ValidationException::withMessages([
                 'vendor' => "Bidding is locked until your registration is approved (status: {$vendor->status}).",
             ]);
+        }
+
+        // Self-bidding prevention: auction creator/owner cannot bid on their own auction
+        if ($user && $auction->submitted_by && (int) $auction->submitted_by === (int) $user->id) {
+            throw ValidationException::withMessages([
+                'vendor' => 'You cannot place bids on your own auction.',
+            ]);
+        }
+
+        if ($auction->organization_id && $vendor->organization_id && (int) $auction->organization_id === (int) $vendor->organization_id) {
+            throw ValidationException::withMessages([
+                'vendor' => 'Members of the hosting organization cannot bid on this auction.',
+            ]);
+        }
+
+        // Role direction rules:
+        // Forward Auction: Only buyers (or dual-role vendors) may bid.
+        // Reverse Auction: Only sellers/suppliers (or dual-role vendors) may quote.
+        $role = $vendor->user?->role ?? $user?->role;
+        if ($auction->isReverse()) {
+            if ($role === 'buyer') {
+                throw ValidationException::withMessages([
+                    'vendor' => 'Only registered sellers/suppliers can participate in reverse procurement auctions.',
+                ]);
+            }
+        } else {
+            if ($role === 'seller') {
+                throw ValidationException::withMessages([
+                    'vendor' => 'Only registered buyers can participate in forward disposal auctions.',
+                ]);
+            }
         }
     }
 }

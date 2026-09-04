@@ -59,6 +59,7 @@ return [
 
         'buyer' => [
             'auctions.view', 'lots.view', 'bids.view',
+            'auctions.create', 'auctions.update', 'auctions.submit',
             'bids.place', 'bids.proxy',
             'emd.lock', 'emd.release',
             'wallet.view', 'wallet.topup',
@@ -70,6 +71,8 @@ return [
         'seller' => [
             'auctions.view', 'lots.view', 'bids.view',
             'auctions.create', 'auctions.update', 'auctions.submit',
+            'bids.place', 'bids.proxy',
+            'emd.lock', 'emd.release',
             'lots.manage',
             'wallet.view', 'orders.view_own',
             'profile.manage', 'notifications.view',
