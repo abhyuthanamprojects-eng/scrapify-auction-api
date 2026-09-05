@@ -161,33 +161,83 @@ class AuthController extends Controller
 
     private function verifyGoogleIdToken(string $idToken): ?array
     {
-        try {
-            $factory = (new \Kreait\Firebase\Factory())
-                ->withProjectId(config('services.google.firebase_project_id'));
+        $projectId = config('services.google.firebase_project_id');
 
-            $serviceAccountPath = config('services.google.firebase_credentials');
-            if ($serviceAccountPath && file_exists($serviceAccountPath)) {
-                $factory = $factory->withServiceAccount($serviceAccountPath);
+        try {
+            // Decode the JWT payload without signature verification first
+            $parts = explode('.', $idToken);
+            if (count($parts) !== 3) {
+                return null;
             }
 
-            $auth = $factory->createAuth();
-            $verifiedToken = $auth->verifyIdToken($idToken);
-            $claims = $verifiedToken->claims();
+            $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+            if (! $payload) {
+                return null;
+            }
 
-            $email = $claims->get('email');
-            $emailVerified = $claims->get('email_verified', false);
+            // Verify issuer matches Firebase project
+            $expectedIssuer = "https://securetoken.google.com/{$projectId}";
+            if (($payload['iss'] ?? '') !== $expectedIssuer) {
+                return null;
+            }
+
+            // Verify audience matches Firebase project
+            if (($payload['aud'] ?? '') !== $projectId) {
+                return null;
+            }
+
+            // Verify token is not expired
+            if (($payload['exp'] ?? 0) < time()) {
+                return null;
+            }
+
+            // Verify signature using Google's public keys
+            $keysResponse = \Illuminate\Support\Facades\Http::get(
+                'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com'
+            );
+
+            if ($keysResponse->failed()) {
+                return null;
+            }
+
+            $keys = $keysResponse->json();
+            $header = json_decode(base64_decode(strtr($parts[0], '-_', '+/')), true);
+            $kid = $header['kid'] ?? '';
+
+            if (! isset($keys[$kid])) {
+                return null;
+            }
+
+            $certificate = openssl_pkey_get_public($keys[$kid]);
+            if (! $certificate) {
+                return null;
+            }
+
+            $signatureValid = openssl_verify(
+                $parts[0] . '.' . $parts[1],
+                base64_decode(strtr($parts[2], '-_', '+/')),
+                $certificate,
+                OPENSSL_ALGO_SHA256
+            );
+
+            if ($signatureValid !== 1) {
+                return null;
+            }
+
+            $email = $payload['email'] ?? null;
+            $emailVerified = $payload['email_verified'] ?? false;
 
             if (! $email || ! $emailVerified) {
                 return null;
             }
 
             return [
-                'sub' => $claims->get('sub'),
+                'sub' => $payload['sub'] ?? '',
                 'email' => $email,
                 'email_verified' => $emailVerified,
-                'name' => $claims->get('name'),
-                'given_name' => $claims->get('given_name', ''),
-                'picture' => $claims->get('picture', ''),
+                'name' => $payload['name'] ?? ($payload['given_name'] ?? 'User'),
+                'given_name' => $payload['given_name'] ?? '',
+                'picture' => $payload['picture'] ?? '',
             ];
         } catch (\Throwable) {
             return null;
