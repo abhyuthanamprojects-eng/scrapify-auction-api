@@ -24,7 +24,7 @@ return [
 
     'allowed_origins' => array_filter(explode(',', (string) env(
         'CORS_ALLOWED_ORIGINS',
-        'http://localhost:8080,http://127.0.0.1:8080,http://localhost:8081,http://127.0.0.1:8081,http://localhost:5173,http://127.0.0.1:5173',
+        'http://localhost:8080,http://127.0.0.1:8080,http://localhost:8081,http://127.0.0.1:8081,http://localhost:5173,http://127.0.0.1:5173,https://scrapifyauctions.com,https://www.scrapifyauctions.com,https://admin.scrapifyauctions.com',
     ))),
 
     'allowed_origins_patterns' => [],
