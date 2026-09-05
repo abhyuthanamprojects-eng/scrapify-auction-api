@@ -30,6 +30,7 @@ class User extends Authenticatable
     protected $fillable = [
         'uuid', 'name', 'email', 'phone', 'password', 'role',
         'organization_id', 'vendor_id', 'status', 'avatar_path',
+        'google_id', 'email_verified_at', 'phone_verified_at', 'last_login_at',
     ];
 
     protected $hidden = ['password', 'remember_token'];

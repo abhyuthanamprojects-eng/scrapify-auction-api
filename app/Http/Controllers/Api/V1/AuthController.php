@@ -91,6 +91,110 @@ class AuthController extends Controller
     }
 
     /**
+     * Google Sign-In: verify a Google ID token, find or create the user,
+     * and return an API token.
+     */
+    public function googleSignIn(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'id_token' => ['required', 'string'],
+            'phone' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'role' => ['sometimes', Rule::in(['buyer', 'seller'])],
+        ]);
+
+        $payload = $this->verifyGoogleIdToken($data['id_token']);
+
+        if (! $payload) {
+            throw ValidationException::withMessages([
+                'id_token' => 'Invalid or expired Google token.',
+            ]);
+        }
+
+        $email = $payload['email'] ?? null;
+        $name = $payload['name'] ?? ($payload['given_name'] ?? 'User');
+
+        if (! $email) {
+            throw ValidationException::withMessages([
+                'id_token' => 'Google account does not have an email address.',
+            ]);
+        }
+
+        $user = User::where('email', $email)->first();
+
+        if ($user) {
+            $user->update([
+                'email_verified_at' => $user->email_verified_at ?? now(),
+                'last_login_at' => now(),
+            ]);
+        } else {
+            $user = User::create([
+                'name' => $name,
+                'email' => $email,
+                'phone' => $data['phone'] ?? null,
+                'password' => Hash::make(bin2hex(random_bytes(16))),
+                'role' => $data['role'] ?? 'buyer',
+                'email_verified_at' => now(),
+                'google_id' => $payload['sub'],
+            ]);
+
+            $vendor = Vendor::create([
+                'user_id' => $user->id,
+                'company_name' => $name,
+                'contact_name' => $name,
+                'email' => $email,
+                'phone' => $data['phone'] ?? null,
+                'status' => 'pending',
+                'registration_step' => 2,
+            ]);
+
+            $user->update(['vendor_id' => $vendor->id]);
+
+            AuditLogger::write("Google sign-up: {$email}", 'User', $user->uuid);
+        }
+
+        return response()->json([
+            'user' => new UserResource($user->load(['vendor', 'organization'])),
+            'token' => $user->createToken('api')->plainTextToken,
+            'is_new' => ! $user->wasRecentlyCreated ? false : true,
+        ]);
+    }
+
+    private function verifyGoogleIdToken(string $idToken): ?array
+    {
+        try {
+            $factory = (new \Kreait\Firebase\Factory())
+                ->withProjectId(config('services.google.firebase_project_id'));
+
+            $serviceAccountPath = config('services.google.firebase_credentials');
+            if ($serviceAccountPath && file_exists($serviceAccountPath)) {
+                $factory = $factory->withServiceAccount($serviceAccountPath);
+            }
+
+            $auth = $factory->createAuth();
+            $verifiedToken = $auth->verifyIdToken($idToken);
+            $claims = $verifiedToken->claims();
+
+            $email = $claims->get('email');
+            $emailVerified = $claims->get('email_verified', false);
+
+            if (! $email || ! $emailVerified) {
+                return null;
+            }
+
+            return [
+                'sub' => $claims->get('sub'),
+                'email' => $email,
+                'email_verified' => $emailVerified,
+                'name' => $claims->get('name'),
+                'given_name' => $claims->get('given_name', ''),
+                'picture' => $claims->get('picture', ''),
+            ];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * Request an OTP. In local dev the code is returned in the response so the
      * mobile and web clients can be exercised without an SMS provider.
      */

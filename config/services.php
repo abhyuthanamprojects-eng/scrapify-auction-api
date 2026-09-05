@@ -2,6 +2,12 @@
 
 return [
 
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'firebase_project_id' => env('FIREBASE_PROJECT_ID', 'scrapify-auction'),
+        'firebase_credentials' => env('FIREBASE_CREDENTIALS'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
