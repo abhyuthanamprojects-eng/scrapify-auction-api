@@ -84,6 +84,9 @@ class AuthController extends Controller
 
         $user->update(['last_login_at' => now()]);
 
+        // Single session: revoke all previous tokens
+        $user->tokens()->delete();
+
         return response()->json([
             'user' => new UserResource($user->load(['vendor', 'organization'])),
             'token' => $user->createToken('api')->plainTextToken,
@@ -151,6 +154,9 @@ class AuthController extends Controller
 
             AuditLogger::write("Google sign-up: {$email}", 'User', $user->uuid);
         }
+
+        // Single session: revoke all previous tokens
+        $user->tokens()->delete();
 
         return response()->json([
             'user' => new UserResource($user->load(['vendor', 'organization'])),
@@ -302,6 +308,9 @@ class AuthController extends Controller
             'email_verified_at' => $otp->channel === 'email' ? now() : $user->email_verified_at,
             'last_login_at' => now(),
         ])->save();
+
+        // Single session: revoke all previous tokens
+        $user->tokens()->delete();
 
         return response()->json([
             'verified' => true,
