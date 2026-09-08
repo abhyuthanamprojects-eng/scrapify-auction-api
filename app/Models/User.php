@@ -15,10 +15,12 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
-    /** The eight roles from the BRD. */
+    /** All roles that may exist in the platform identity store. */
     public const ROLES = [
         'super_admin',
         'admin',
+        'operations',
+        'compliance',
         'buyer',
         'seller',
         'procurement_manager',
@@ -98,7 +100,12 @@ class User extends Authenticatable
 
     public function isAdmin(): bool
     {
-        return $this->hasRole('admin', 'super_admin');
+        return in_array($this->role, config('roles.admin_roles', []), true);
+    }
+
+    public function isPublicUser(): bool
+    {
+        return in_array($this->role, config('roles.public_roles', []), true);
     }
 
     /**

@@ -41,11 +41,18 @@ class DisputeController extends Controller
         ]);
     }
 
-    public function show(string $code): JsonResponse
+    public function show(Request $request, string $code): JsonResponse
     {
         $dispute = Dispute::where('code', $code)
             ->with(['vendor', 'auction', 'order', 'evidence', 'timeline', 'investigator'])
             ->firstOrFail();
+
+        $user = $request->user();
+        abort_unless(
+            $user?->hasPermission('audit.view') || (int) $dispute->vendor_id === (int) $user?->vendor_id,
+            403,
+            'You are not authorized to view this dispute.'
+        );
 
         return response()->json([
             'success' => true,

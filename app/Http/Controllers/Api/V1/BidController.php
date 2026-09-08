@@ -21,7 +21,7 @@ class BidController extends Controller
     {
         $auction = Auction::where('code', $code)->firstOrFail();
 
-        $q = $auction->bids()->with(['vendor', 'lot'])->latest('id');
+        $q = $auction->bids()->with(['auction', 'vendor', 'lot'])->latest('id');
 
         if ($lotCode = $request->query('lot')) {
             $q->whereHas('lot', fn ($l) => $l->where('code', $lotCode));

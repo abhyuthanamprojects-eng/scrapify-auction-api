@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Validation\Rule;
+use App\Services\GeneralSettings;
 
 class LotController extends Controller
 {
@@ -34,6 +35,9 @@ class LotController extends Controller
         $data = $this->rules($request);
         $auction = Auction::where('code', $code)->firstOrFail();
 
+        $this->authorizeOwnerOrStaff($request, $auction);
+        $this->assertEditable($auction);
+
         abort_unless($auction->isLotWise(), 422, 'Lots can only be added to a lot-wise auction.');
 
         $next = $auction->lots()->count() + 1;
@@ -50,6 +54,8 @@ class LotController extends Controller
     {
         $data = $this->rules($request, partial: true);
         $auction = Auction::where('code', $code)->firstOrFail();
+        $this->authorizeOwnerOrStaff($request, $auction);
+        $this->assertEditable($auction);
         $lot = $auction->lots()->where('code', $lotCode)->firstOrFail();
 
         abort_if($lot->status === 'closed', 422, 'A closed lot cannot be edited.');
@@ -59,9 +65,11 @@ class LotController extends Controller
         return new LotResource($lot);
     }
 
-    public function destroy(string $code, string $lotCode): JsonResponse
+    public function destroy(Request $request, string $code, string $lotCode): JsonResponse
     {
         $auction = Auction::where('code', $code)->firstOrFail();
+        $this->authorizeOwnerOrStaff($request, $auction);
+        $this->assertEditable($auction);
         $lot = $auction->lots()->where('code', $lotCode)->firstOrFail();
 
         abort_if($lot->bids()->exists(), 422, 'A lot that has received bids cannot be deleted.');
@@ -81,5 +89,22 @@ class LotController extends Controller
             'uom' => ['sometimes', Rule::in(['MT', 'KG', 'Nos.'])],
             'reserve_price' => ['sometimes', 'nullable', 'numeric', 'min:0'],
         ]);
+    }
+
+    private function authorizeOwnerOrStaff(Request $request, Auction $auction): void
+    {
+        $user = $request->user();
+        abort_unless($user && ($user->hasPermission('auctions.approve') || (int) $auction->submitted_by === (int) $user->id), 403, 'You may only manage your own auction lots.');
+    }
+
+    private function assertEditable(Auction $auction): void
+    {
+        abort_if(in_array($auction->status, ['closed', 'cancelled', 'live'], true), 422, 'This auction is no longer editable.');
+        $lockHours = GeneralSettings::int('auction_edit_lock_hours', 3);
+        abort_if(
+            $auction->schedule_start && now()->greaterThanOrEqualTo($auction->schedule_start->copy()->subHours($lockHours)),
+            422,
+            "Editing is locked because this auction starts within {$lockHours} hours.",
+        );
     }
 }

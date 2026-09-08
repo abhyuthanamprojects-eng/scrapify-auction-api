@@ -16,6 +16,9 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    private const PUBLIC_TOKEN_ABILITIES = ['public:web'];
+    private const ADMIN_TOKEN_ABILITIES = ['admin:panel'];
+
     /**
      * Step 1 + 2 of the mobile signup wizard: identity plus login credentials.
      * Company details and KYC arrive later via the vendors endpoints.
@@ -56,7 +59,7 @@ class AuthController extends Controller
 
         return response()->json([
             'user' => new UserResource($user->load('vendor')),
-            'token' => $user->createToken('api')->plainTextToken,
+            'token' => $this->issueToken($user, 'public-web')->plainTextToken,
         ], 201);
     }
 
@@ -78,18 +81,83 @@ class AuthController extends Controller
             ]);
         }
 
+        if (! $user->isPublicUser()) {
+            AuditLogger::writeFor($user, 'Rejected public login for internal account', 'User', $user->uuid, [
+                'auth_context' => 'public-web',
+                'reason_code' => 'ADMIN_LOGIN_NOT_ALLOWED_HERE',
+            ]);
+            return $this->contextDenied(
+                'This account must sign in through the Admin Portal.',
+                'ADMIN_LOGIN_NOT_ALLOWED_HERE'
+            );
+        }
+
         if ($user->status !== 'active') {
             throw ValidationException::withMessages(['identifier' => 'This account is not active.']);
         }
 
         $user->update(['last_login_at' => now()]);
+        AuditLogger::writeFor($user, 'Authenticated through public web context', 'User', $user->uuid, [
+            'auth_context' => 'public-web',
+        ]);
 
         // Single session: revoke all previous tokens
         $user->tokens()->delete();
 
         return response()->json([
             'user' => new UserResource($user->load(['vendor', 'organization'])),
-            'token' => $user->createToken('api')->plainTextToken,
+            'token' => $this->issueToken($user, 'public-web')->plainTextToken,
+        ]);
+    }
+
+    /**
+     * Admin-only password login. This is a separate endpoint by design; the
+     * public login endpoint cannot mint an internal/admin session.
+     */
+    public function adminLogin(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'identifier' => ['required', 'string'],
+            'password' => ['required', 'string'],
+        ]);
+
+        $user = User::where('email', $data['identifier'])
+            ->orWhere('phone', $data['identifier'])
+            ->first();
+
+        if (! $user || ! Hash::check($data['password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'identifier' => 'These credentials do not match an authorized admin account.',
+            ]);
+        }
+
+        if (! $user->isAdmin()) {
+            AuditLogger::writeFor($user, 'Rejected admin login for public account', 'User', $user->uuid, [
+                'auth_context' => 'admin-panel',
+                'reason_code' => 'ADMIN_ROLE_REQUIRED',
+            ]);
+            return $this->contextDenied(
+                'Only authorized internal staff may sign in to the Admin Portal.',
+                'ADMIN_ROLE_REQUIRED'
+            );
+        }
+
+        if ($user->status !== 'active') {
+            return $this->contextDenied(
+                'This admin account is not active.',
+                'ADMIN_ACCOUNT_INACTIVE'
+            );
+        }
+
+        $user->update(['last_login_at' => now()]);
+        AuditLogger::writeFor($user, 'Authenticated through admin panel context', 'User', $user->uuid, [
+            'auth_context' => 'admin-panel',
+        ]);
+        $user->tokens()->delete();
+
+        return response()->json([
+            'user' => new UserResource($user->load(['vendor', 'organization'])),
+            'token' => $this->issueToken($user, 'admin-panel')->plainTextToken,
         ]);
     }
 
@@ -125,6 +193,13 @@ class AuthController extends Controller
         $user = User::where('email', $email)->first();
 
         if ($user) {
+            if (! $user->isPublicUser()) {
+                return $this->contextDenied(
+                    'This account must sign in through the Admin Portal.',
+                    'ADMIN_LOGIN_NOT_ALLOWED_HERE'
+                );
+            }
+
             $user->update([
                 'email_verified_at' => $user->email_verified_at ?? now(),
                 'last_login_at' => now(),
@@ -160,7 +235,7 @@ class AuthController extends Controller
 
         return response()->json([
             'user' => new UserResource($user->load(['vendor', 'organization'])),
-            'token' => $user->createToken('api')->plainTextToken,
+            'token' => $this->issueToken($user, 'public-web')->plainTextToken,
             'is_new' => ! $user->wasRecentlyCreated ? false : true,
         ]);
     }
@@ -303,6 +378,13 @@ class AuthController extends Controller
             return response()->json(['verified' => true, 'user' => null, 'token' => null]);
         }
 
+        if (! $user->isPublicUser()) {
+            return $this->contextDenied(
+                'This account must sign in through the Admin Portal.',
+                'ADMIN_LOGIN_NOT_ALLOWED_HERE'
+            );
+        }
+
         $user->forceFill([
             'phone_verified_at' => $otp->channel === 'sms' ? now() : $user->phone_verified_at,
             'email_verified_at' => $otp->channel === 'email' ? now() : $user->email_verified_at,
@@ -315,7 +397,7 @@ class AuthController extends Controller
         return response()->json([
             'verified' => true,
             'user' => new UserResource($user->load(['vendor', 'organization'])),
-            'token' => $user->createToken('api')->plainTextToken,
+            'token' => $this->issueToken($user, 'public-web')->plainTextToken,
         ]);
     }
 
@@ -331,5 +413,22 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()->delete();
 
         return response()->json(['message' => 'Logged out.']);
+    }
+
+    private function issueToken(User $user, string $name): \Laravel\Sanctum\NewAccessToken
+    {
+        $abilities = $name === 'admin-panel'
+            ? self::ADMIN_TOKEN_ABILITIES
+            : self::PUBLIC_TOKEN_ABILITIES;
+
+        return $user->createToken($name, $abilities);
+    }
+
+    private function contextDenied(string $message, string $code): JsonResponse
+    {
+        return response()->json([
+            'message' => $message,
+            'error' => ['code' => $code],
+        ], 403);
     }
 }

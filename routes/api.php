@@ -47,6 +47,7 @@ Route::prefix('v1')->group(function () {
     /* ---------------------------------------------------------------- auth */
     Route::post('auth/register', [AuthController::class, 'register']);
     Route::post('auth/login', [AuthController::class, 'login']);
+    Route::post('admin/auth/login', [AuthController::class, 'adminLogin']);
     Route::post('auth/request-otp', [AuthController::class, 'requestOtp']);
     Route::post('auth/google', [AuthController::class, 'googleSignIn']);
     Route::post('auth/verify-otp', [AuthController::class, 'verifyOtp']);
@@ -73,8 +74,15 @@ Route::prefix('v1')->group(function () {
     /* ------------------------------------------------------- authenticated */
     Route::middleware('auth:sanctum')->group(function () {
 
-        Route::get('auth/me', [AuthController::class, 'me']);
-        Route::post('auth/logout', [AuthController::class, 'logout']);
+        Route::middleware('token.context:public')->group(function () {
+            Route::get('auth/me', [AuthController::class, 'me']);
+            Route::post('auth/logout', [AuthController::class, 'logout']);
+        });
+
+        Route::middleware('token.context:admin')->group(function () {
+            Route::get('admin/auth/me', [AuthController::class, 'me']);
+            Route::post('admin/auth/logout', [AuthController::class, 'logout']);
+        });
 
         /* Business KYB — provider calls remain backend-only. */
         Route::get('kyb/status', [BusinessVerificationController::class, 'status'])->middleware('permission:kyb.view');
@@ -82,25 +90,27 @@ Route::prefix('v1')->group(function () {
         Route::post('kyb/gstin/verify', [BusinessVerificationController::class, 'verifyGstin'])->middleware('permission:kyb.view');
         Route::post('kyb/bank/verify', [BusinessVerificationController::class, 'verifyBank'])->middleware('permission:kyb.view');
         Route::post('kyb/reverify', [BusinessVerificationController::class, 'reverify'])->middleware('permission:kyb.view');
-        Route::get('admin/kyb', [BusinessVerificationController::class, 'adminIndex'])->middleware('permission:kyb.view');
-        Route::get('admin/kyb/{id}', [BusinessVerificationController::class, 'adminShow'])->middleware('permission:kyb.view');
-        Route::post('admin/kyb/{id}/approve', [BusinessVerificationController::class, 'approve'])->middleware('permission:kyb.approve');
-        Route::post('admin/kyb/{id}/reject', [BusinessVerificationController::class, 'reject'])->middleware('permission:kyb.reject');
-        Route::post('admin/kyb/{id}/request-reverification', [BusinessVerificationController::class, 'requestReverification'])->middleware('permission:kyb.review');
+        Route::get('admin/kyb', [BusinessVerificationController::class, 'adminIndex'])->middleware(['token.context:admin', 'permission:kyb.view']);
+        Route::get('admin/kyb/{id}', [BusinessVerificationController::class, 'adminShow'])->middleware(['token.context:admin', 'permission:kyb.view']);
+        Route::post('admin/kyb/{id}/approve', [BusinessVerificationController::class, 'approve'])->middleware(['token.context:admin', 'permission:kyb.approve']);
+        Route::post('admin/kyb/{id}/reject', [BusinessVerificationController::class, 'reject'])->middleware(['token.context:admin', 'permission:kyb.reject']);
+        Route::post('admin/kyb/{id}/request-reverification', [BusinessVerificationController::class, 'requestReverification'])->middleware(['token.context:admin', 'permission:kyb.review']);
         Route::patch('platform-config', [PlatformConfigController::class, 'update'])
-            ->middleware('permission:platform.config.update');
-        Route::get('my-auctions', [AuctionController::class, 'index'])
-            ->middleware('permission:auctions.view');
+            ->middleware(['token.context:admin', 'permission:platform.config.update']);
+        Route::get('my-auctions', [AuctionController::class, 'myAuctions'])
+            ->middleware(['token.context:public', 'permission:auctions.view']);
 
-        /* profile, addresses, payment methods */
-        Route::patch('profile', [ProfileController::class, 'update']);
-        Route::get('profile/addresses', [ProfileController::class, 'addresses']);
-        Route::post('profile/addresses', [ProfileController::class, 'storeAddress']);
-        Route::patch('profile/addresses/{id}', [ProfileController::class, 'updateAddress']);
-        Route::delete('profile/addresses/{id}', [ProfileController::class, 'destroyAddress']);
-        Route::get('profile/payment-methods', [ProfileController::class, 'paymentMethods']);
-        Route::post('profile/payment-methods', [ProfileController::class, 'storePaymentMethod']);
-        Route::delete('profile/payment-methods/{id}', [ProfileController::class, 'destroyPaymentMethod']);
+        /* profile, addresses, payment methods — public workspace only */
+        Route::middleware('token.context:public')->group(function () {
+            Route::patch('profile', [ProfileController::class, 'update']);
+            Route::get('profile/addresses', [ProfileController::class, 'addresses']);
+            Route::post('profile/addresses', [ProfileController::class, 'storeAddress']);
+            Route::patch('profile/addresses/{id}', [ProfileController::class, 'updateAddress']);
+            Route::delete('profile/addresses/{id}', [ProfileController::class, 'destroyAddress']);
+            Route::get('profile/payment-methods', [ProfileController::class, 'paymentMethods']);
+            Route::post('profile/payment-methods', [ProfileController::class, 'storePaymentMethod']);
+            Route::delete('profile/payment-methods/{id}', [ProfileController::class, 'destroyPaymentMethod']);
+        });
 
         /* organizations */
         Route::get('organizations', [OrganizationController::class, 'index'])
@@ -120,26 +130,31 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:organizations.approve');
 
         /* auction terms acceptance */
-        Route::post('auctions/{code}/terms/accept', [AuctionController::class, 'acceptTerms']);
-        Route::post('auctions/{code}/rfq-submissions', [AuctionController::class, 'submitRfq'])->middleware('kyc.verified');
+        Route::post('auctions/{code}/terms/accept', [AuctionController::class, 'acceptTerms'])->middleware('token.context:public');
+        Route::post('auctions/{code}/rfq-submissions', [AuctionController::class, 'submitRfq'])->middleware(['token.context:public', 'kyc.verified']);
         Route::post('auctions/{code}/rfq-submissions/{submissionId}/review', [AuctionController::class, 'reviewRfq'])->middleware('permission:auctions.approve');
         Route::post('auctions/{code}/rfq/benchmark/finalize', [AuctionController::class, 'finalizeRfqBenchmark'])->middleware('permission:auctions.approve');
         Route::post('auctions/{code}/rfq/discovery', [AuctionController::class, 'createDiscoveryRound'])->middleware('permission:auctions.approve');
         Route::post('auctions/{code}/rfq/discovery/{roundId}/start', [AuctionController::class, 'startDiscoveryRound'])->middleware('permission:auctions.approve');
-        Route::post('auctions/{code}/rfq/discovery/{roundId}/submit', [AuctionController::class, 'submitDiscovery'])->middleware('kyc.verified');
+        Route::post('auctions/{code}/rfq/discovery/{roundId}/submit', [AuctionController::class, 'submitDiscovery'])->middleware(['token.context:public', 'kyc.verified']);
         Route::post('auctions/{code}/rfq/discovery/{roundId}/close', [AuctionController::class, 'closeDiscoveryRound'])->middleware('permission:auctions.approve');
 
         /* vendors */
-        Route::post('vendors/register', [VendorController::class, 'register']);
-        Route::post('vendors/save-step', [VendorController::class, 'saveStep']);
-        Route::post('vendors/{code}/submit-kyc', [VendorController::class, 'submitKyc']);
-        Route::post('vendors/{code}/resubmit-kyc', [VendorController::class, 'resubmitKyc']);
-        Route::get('vendors/{code}/kyc-status', [VendorController::class, 'kycStatus']);
+        Route::middleware('token.context:public')->group(function () {
+            Route::post('vendors/register', [VendorController::class, 'register']);
+            Route::post('vendors/save-step', [VendorController::class, 'saveStep']);
+            Route::post('vendors/{code}/submit-kyc', [VendorController::class, 'submitKyc']);
+            Route::post('vendors/{code}/resubmit-kyc', [VendorController::class, 'resubmitKyc']);
+            Route::get('vendors/{code}/kyc-status', [VendorController::class, 'kycStatus']);
+            Route::post('vendors/{code}/registration-payment', [VendorController::class, 'recordRegistrationPayment']);
+        });
+        // Document access supports both a vendor's public workspace and
+        // authorized admin review. The controller still enforces ownership or
+        // an internal role, so this route must not be public-context-only.
         Route::get('vendors/{code}/documents/{id}/download', [VendorController::class, 'downloadDocument']);
+        Route::post('vendors/{code}/documents', [VendorController::class, 'uploadDocument']);
         Route::post('vendors/invitations', [VendorController::class, 'invite'])
             ->middleware('permission:vendors.approve');
-        Route::post('vendors/{code}/documents', [VendorController::class, 'uploadDocument']);
-        Route::post('vendors/{code}/registration-payment', [VendorController::class, 'recordRegistrationPayment']);
         Route::get('vendors', [VendorController::class, 'index'])
             ->middleware('permission:vendors.view');
         Route::get('vendors/{code}', [VendorController::class, 'show'])
@@ -160,6 +175,8 @@ Route::prefix('v1')->group(function () {
             ->middleware(['permission:auctions.create', 'kyc.verified']);
         Route::patch('auctions/{code}', [AuctionController::class, 'update'])
             ->middleware('permission:auctions.update');
+        Route::delete('admin/auctions/{code}', [AuctionController::class, 'adminDestroy'])
+            ->middleware(['token.context:admin', 'permission:auctions.delete']);
         Route::patch('auctions/{code}/configuration', [AuctionController::class, 'updateConfiguration'])
             ->middleware('permission:auctions.update');
         Route::post('auctions/{code}/submit', [AuctionController::class, 'submit'])
@@ -208,42 +225,42 @@ Route::prefix('v1')->group(function () {
 
         /* bidding */
         Route::post('auctions/{code}/bids', [BidController::class, 'store'])
-            ->middleware(['permission:bids.place', 'kyc.verified']);
+            ->middleware(['token.context:public', 'permission:bids.place', 'kyc.verified']);
         Route::post('auctions/{code}/proxy-bid', [BidController::class, 'setProxy'])
-            ->middleware(['permission:bids.proxy', 'kyc.verified']);
+            ->middleware(['token.context:public', 'permission:bids.proxy', 'kyc.verified']);
         Route::delete('auctions/{code}/proxy-bid', [BidController::class, 'cancelProxy'])
-            ->middleware('permission:bids.proxy');
-        Route::get('my-bids', [BidController::class, 'myBids']);
+            ->middleware(['token.context:public', 'permission:bids.proxy']);
+        Route::get('my-bids', [BidController::class, 'myBids'])->middleware('token.context:public');
 
         /* watchlist */
-        Route::get('watchlist', [WatchlistController::class, 'index']);
+        Route::get('watchlist', [WatchlistController::class, 'index'])->middleware('token.context:public');
         Route::post('watchlist', [WatchlistController::class, 'store'])
-            ->middleware('permission:watchlist.manage');
+            ->middleware(['token.context:public', 'permission:watchlist.manage']);
         Route::delete('watchlist/{code}', [WatchlistController::class, 'destroy'])
-            ->middleware('permission:watchlist.manage');
+            ->middleware(['token.context:public', 'permission:watchlist.manage']);
 
         /* wallet and EMD */
-        Route::get('wallet', [WalletController::class, 'balance']);
-        Route::get('wallet/transactions', [WalletController::class, 'transactions']);
+        Route::get('wallet', [WalletController::class, 'balance'])->middleware('token.context:public');
+        Route::get('wallet/transactions', [WalletController::class, 'transactions'])->middleware('token.context:public');
         Route::post('wallet/top-up', [WalletController::class, 'topUp'])
-            ->middleware('permission:wallet.topup');
-        Route::get('emd', [WalletController::class, 'emdList']);
+            ->middleware(['token.context:public', 'permission:wallet.topup']);
+        Route::get('emd', [WalletController::class, 'emdList'])->middleware('token.context:public');
         Route::post('emd/lock', [WalletController::class, 'lockEmd'])
-            ->middleware(['permission:emd.lock,emd.manage', 'kyc.verified']);
-        Route::post('emd/{id}/release', [WalletController::class, 'releaseEmd']);
+            ->middleware(['token.context:public', 'permission:emd.lock,emd.manage', 'kyc.verified']);
+        Route::post('emd/{id}/release', [WalletController::class, 'releaseEmd'])->middleware('token.context:public');
         Route::post('emd/{id}/forfeit', [WalletController::class, 'forfeitEmd'])
             ->middleware('permission:emd.manage');
         Route::post('emd/{id}/verify', [WalletController::class, 'verifyEmd'])
             ->middleware('permission:emd.manage');
 
         /* orders and fulfilment */
-        Route::get('orders', [OrderController::class, 'index']);
+        Route::get('orders', [OrderController::class, 'index'])->middleware('token.context:public');
         Route::post('orders', [OrderController::class, 'store'])
             ->middleware('permission:orders.manage');
-        Route::get('orders/{code}', [OrderController::class, 'show']);
+        Route::get('orders/{code}', [OrderController::class, 'show'])->middleware('token.context:public');
         Route::post('orders/{code}/pay', [OrderController::class, 'pay'])
-            ->middleware('permission:orders.pay,orders.manage');
-        Route::post('orders/{code}/pickup', [OrderController::class, 'schedulePickup']);
+            ->middleware(['token.context:public', 'permission:orders.pay,orders.manage']);
+        Route::post('orders/{code}/pickup', [OrderController::class, 'schedulePickup'])->middleware('token.context:public');
         Route::post('orders/{code}/weighbridge', [OrderController::class, 'recordWeighbridge'])
             ->middleware('permission:orders.manage');
         Route::post('orders/{code}/handover', [OrderController::class, 'verifyHandover'])
@@ -275,7 +292,8 @@ Route::prefix('v1')->group(function () {
         /* approvals workflow */
         Route::get('approvals', [ApprovalController::class, 'index'])
             ->middleware('permission:auctions.approve');
-        Route::post('auctions/{code}/approvals', [ApprovalController::class, 'store']);
+        Route::post('auctions/{code}/approvals', [ApprovalController::class, 'store'])
+            ->middleware('permission:auctions.approve');
         Route::post('approvals/{id}/decide', [ApprovalController::class, 'decide'])
             ->middleware('permission:auctions.approve');
 
@@ -302,9 +320,11 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:audit.view');
 
         /* team members (org/vendor scoped) */
-        Route::get('team/members', [TeamController::class, 'index']);
-        Route::post('team/members', [TeamController::class, 'store']);
-        Route::patch('team/members/{id}', [TeamController::class, 'update']);
+        Route::middleware('token.context:public')->group(function () {
+            Route::get('team/members', [TeamController::class, 'index']);
+            Route::post('team/members', [TeamController::class, 'store']);
+            Route::patch('team/members/{id}', [TeamController::class, 'update']);
+        });
 
         /* risk and fraud flags */
         Route::get('risk/flags', [RiskController::class, 'index'])
@@ -334,7 +354,7 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:audit.view');
 
         /* admin-only endpoints */
-        Route::prefix('admin')->group(function () {
+        Route::prefix('admin')->middleware('token.context:admin')->group(function () {
             Route::get('finance/summary', [FinanceController::class, 'summary'])
                 ->middleware('permission:wallet.view_any');
 
@@ -353,10 +373,12 @@ Route::prefix('v1')->group(function () {
         });
 
         /* notifications */
-        Route::get('notifications', [NotificationController::class, 'index']);
-        Route::post('notifications/{id}/read', [NotificationController::class, 'markRead']);
-        Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
-        Route::get('notification-preferences', [NotificationController::class, 'preferences']);
-        Route::put('notification-preferences', [NotificationController::class, 'updatePreferences']);
+        Route::middleware('token.context:public')->group(function () {
+            Route::get('notifications', [NotificationController::class, 'index']);
+            Route::post('notifications/{id}/read', [NotificationController::class, 'markRead']);
+            Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
+            Route::get('notification-preferences', [NotificationController::class, 'preferences']);
+            Route::put('notification-preferences', [NotificationController::class, 'updatePreferences']);
+        });
     });
 });

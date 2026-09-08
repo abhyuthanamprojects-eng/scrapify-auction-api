@@ -71,10 +71,6 @@ class TeamController extends Controller
             $request->merge(['phone' => $phone]);
         }
 
-        if (!$request->filled('password')) {
-            $request->merge(['password' => 'password123']);
-        }
-
         if ($request->has('is_active')) {
             $request->merge(['status' => $request->boolean('is_active') ? 'active' : 'inactive']);
         }
@@ -83,7 +79,7 @@ class TeamController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'unique:users,email'],
             'phone' => ['sometimes', 'nullable', 'string', 'max:20'],
-            'password' => ['sometimes', 'nullable', 'string', 'min:6'],
+            'password' => ['required', 'string', 'min:8'],
             'role' => ['required', Rule::in(User::ROLES)],
             'status' => ['sometimes', Rule::in(['active', 'inactive', 'suspended'])],
         ]);

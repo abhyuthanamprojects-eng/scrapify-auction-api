@@ -13,11 +13,30 @@ use Illuminate\Http\Request;
 
 class RfxController extends Controller
 {
-    public function index(string $code): JsonResponse
+    public function index(Request $request, string $code): JsonResponse
     {
         $auction = Auction::where('code', $code)->firstOrFail();
+        $user = $request->user();
+        $isStaff = $user?->hasPermission('auctions.approve') || $user?->hasPermission('auctions.evaluate');
+        $isSellerOwner = $user?->hasRole('seller') && (int) $auction->submitted_by === (int) $user->id;
+        $vendorId = $user?->vendor_id;
+
+        abort_unless($isStaff || $isSellerOwner || $vendorId, 403, 'You are not authorized to view RFx data for this auction.');
+
+        $hasParticipation = $vendorId && (
+            $auction->bids()->where('vendor_id', $vendorId)->exists()
+            || $auction->emdTransactions()->where('vendor_id', $vendorId)->exists()
+            || RfxResponse::where('vendor_id', $vendorId)->whereHas('package', fn ($q) => $q->where('auction_id', $auction->id))->exists()
+        );
+        abort_unless($isStaff || $isSellerOwner || $hasParticipation, 403, 'You did not participate in this auction.');
+
         $packages = RfxPackage::where('auction_id', $auction->id)
-            ->with(['questions', 'responses.vendor'])
+            ->with(['questions', 'responses' => function ($query) use ($user, $isStaff, $isSellerOwner) {
+                if (! $isStaff && ! $isSellerOwner) {
+                    $query->where('vendor_id', $user->vendor_id);
+                }
+                $query->with('vendor');
+            }])
             ->get();
 
         return response()->json([

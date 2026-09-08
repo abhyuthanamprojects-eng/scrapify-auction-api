@@ -20,12 +20,29 @@ use Illuminate\Support\Facades\DB;
 
 class AwardController extends Controller
 {
-    public function index(string $code): JsonResponse
+    public function index(Request $request, string $code): JsonResponse
     {
         $auction = Auction::where('code', $code)->firstOrFail();
-        $awards = Award::where('auction_id', $auction->id)
+        $user = $request->user();
+        $isStaff = $user?->hasPermission('winner.manage') || $user?->hasPermission('auction.result.view');
+        $isSellerOwner = $user?->hasRole('seller') && (int) $auction->submitted_by === (int) $user->id;
+        $vendorId = $user?->vendor_id;
+
+        abort_unless($isStaff || $isSellerOwner || $vendorId, 403, 'You are not authorized to view awards for this auction.');
+
+        $query = Award::where('auction_id', $auction->id);
+        if (! $isStaff && ! $isSellerOwner) {
+            $query->where(function ($q) use ($vendorId) {
+                $q->where('winner_vendor_id', $vendorId)
+                    ->orWhereHas('fallbackOffers', fn ($fallback) => $fallback->where('vendor_id', $vendorId));
+            });
+        }
+
+        $awards = $query
             ->with(['winner', 'lot', 'fallbackOffers.vendor'])
             ->get();
+
+        abort_if(! $isStaff && ! $isSellerOwner && $awards->isEmpty(), 403, 'You did not participate in this auction.');
 
         return response()->json([
             'success' => true,

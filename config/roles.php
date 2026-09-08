@@ -16,6 +16,23 @@ $view = [
 
 return [
 
+    // These role boundaries are authentication boundaries as well as
+    // authorization boundaries. A public token must never be minted for an
+    // internal account, and an admin token must never be minted for a buyer or
+    // seller account.
+    'public_roles' => ['buyer', 'seller'],
+
+    'admin_roles' => [
+        'super_admin',
+        'admin',
+        'operations',
+        'compliance',
+        'procurement_manager',
+        'finance_manager',
+        'technical_evaluator',
+        'auditor',
+    ],
+
     'permissions' => [
 
         'super_admin' => ['*'],
@@ -26,7 +43,7 @@ return [
             'vendors.approve', 'vendors.reject', 'vendors.suspend', 'vendors.update',
             'auctions.create', 'auctions.update', 'auctions.submit',
             'auctions.approve', 'auctions.send_back', 'auctions.reject',
-            'auctions.publish', 'auctions.extend', 'auctions.close',
+            'auctions.publish', 'auctions.extend', 'auctions.close', 'auctions.delete',
             'lots.manage',
             'tokens.create', 'tokens.revoke',
             'notifications.view',

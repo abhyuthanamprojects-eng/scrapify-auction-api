@@ -24,6 +24,7 @@ use App\Services\EmdService;
 use App\Services\GeneralSettings;
 use App\Services\NotificationService;
 use App\Services\AuctionResultService;
+use App\Services\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -99,6 +100,14 @@ class AuctionController extends Controller
         $q->orderByDesc('created_at');
 
         return AuctionResource::collection($q->paginate((int) $request->query('per_page', 25)));
+    }
+
+    /** Seller workspace listing: only auctions owned by the authenticated seller. */
+    public function myAuctions(Request $request): AnonymousResourceCollection
+    {
+        abort_unless($request->user()?->hasRole('seller'), 403, 'Only sellers can view their auction workspace.');
+
+        return $this->index($request->merge(['mine' => true]));
     }
 
     public function show(Request $request, string $code): AuctionResource
@@ -181,6 +190,63 @@ class AuctionController extends Controller
         return new AuctionResource($auction->fresh(['category', 'lots', 'photos']));
     }
 
+    /**
+     * Admin-only controlled auction archival. Historical auctions are never
+     * hard-deleted because bids, EMD, terms, RFQ and settlement records must
+     * remain available for audit and legal retention.
+     */
+    public function adminDestroy(Request $request, string $code): JsonResponse
+    {
+        $data = $request->validate([
+            'reason' => ['required', 'string', 'max:2000'],
+        ]);
+        $auction = Auction::where('code', $code)->firstOrFail();
+        $oldStatus = (string) $auction->status;
+
+        abort_if(
+            in_array($oldStatus, ['live', 'closed', 'completed', 'settled', 'awarded', 'cancelled'], true),
+            422,
+            'This auction is historical or active and cannot be archived through delete.',
+        );
+
+        $hasExecutionHistory = $auction->bids()->exists()
+            || $auction->emdTransactions()->exists()
+            || $auction->result()->exists()
+            || $auction->awards()->exists()
+            || $auction->termsAcceptances()->exists()
+            || $auction->rfxPackages()->exists();
+
+        abort_if(
+            $hasExecutionHistory,
+            422,
+            'This auction has execution or financial history; use the controlled cancellation and settlement workflow.',
+        );
+
+        $auction->update(['status' => 'cancelled']);
+
+        AuditLogger::write(
+            'AUCTION_ARCHIVED_BY_ADMIN',
+            'auction',
+            $auction->code,
+            [
+                'old_status' => $oldStatus,
+                'new_status' => 'cancelled',
+                'reason' => $data['reason'],
+                'preserved_history' => true,
+            ],
+            $request->user(),
+        );
+
+        return response()->json([
+            'message' => 'Auction archived and retained for audit.',
+            'data' => [
+                'code' => $auction->code,
+                'status' => $auction->status,
+                'archived' => true,
+            ],
+        ]);
+    }
+
     public function submit(string $code): AuctionResource
     {
         $auction = Auction::where('code', $code)->firstOrFail();
@@ -246,6 +312,7 @@ class AuctionController extends Controller
     public function updateConfiguration(Request $request, string $code): AuctionResource
     {
         $auction = Auction::where('code', $code)->firstOrFail();
+        $this->authorizeOwnerOrStaff($request, $auction);
         abort_unless(in_array($auction->status, ['draft', 'pending_approval', 'sent_back', 'approved'], true), 422, 'Auction configuration is locked after publication.');
         $data = $request->validate([
             'rfq_required' => ['sometimes', 'boolean'], 'rfq_mode' => ['sometimes', 'in:DOCUMENT,DISCOVERY_ROUND,HYBRID'],
@@ -532,7 +599,7 @@ class AuctionController extends Controller
         if ($user?->hasRole('seller') && ! $isSellerOwner) abort(403, 'Seller result access is limited to auctions submitted by that seller.');
 
         $vendorId = $user?->vendor_id;
-        if (! $isSellerOwner && $vendorId && ! collect($result->ranking_snapshot)->contains(fn ($row) => (int) ($row['vendor_id'] ?? 0) === (int) $vendorId)) {
+        if (! $isSellerOwner && (! $vendorId || ! collect($result->ranking_snapshot)->contains(fn ($row) => (int) ($row['vendor_id'] ?? 0) === (int) $vendorId))) {
             abort(403, 'You did not participate in this auction.');
         }
         $confirmation = $vendorId ? WinnerConfirmation::where('result_id', $result->id)->where('participant_id', $vendorId)->latest('id')->first() : null;

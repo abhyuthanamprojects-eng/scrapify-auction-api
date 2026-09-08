@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Request;
 
@@ -13,9 +14,9 @@ use Illuminate\Support\Facades\Request;
  */
 class AuditLogger
 {
-    public static function write(string $action, ?string $entityType = null, ?string $entityId = null, array $meta = []): ?AuditLog
+    public static function write(string $action, ?string $entityType = null, ?string $entityId = null, array $meta = [], ?User $actor = null): ?AuditLog
     {
-        $user = Auth::user();
+        $user = $actor ?? Auth::user();
 
         // Seeding and migrations create records with no actor behind them.
         // Those are not admin actions, so they do not belong in the trail.
@@ -39,5 +40,10 @@ class AuditLogger
             'meta' => array_filter($meta, static fn ($value) => $value !== null) ?: null,
             'created_at' => now(),
         ]);
+    }
+
+    public static function writeFor(User $actor, string $action, ?string $entityType = null, ?string $entityId = null, array $meta = []): ?AuditLog
+    {
+        return self::write($action, $entityType, $entityId, $meta, $actor);
     }
 }

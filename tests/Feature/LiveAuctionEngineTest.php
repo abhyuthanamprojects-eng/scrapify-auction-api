@@ -302,4 +302,53 @@ class LiveAuctionEngineTest extends TestCase
         Sanctum::actingAs($otherSeller);
         $this->getJson("/api/v1/auctions/{$auction->code}/result")->assertForbidden();
     }
+
+    public function test_buyer_cannot_view_another_participants_result_or_emd(): void
+    {
+        [$buyerA, $vendorA] = $this->bidder('buyer-a-isolation-'.uniqid().'@example.com');
+        [, $vendorB] = $this->bidder('buyer-b-isolation-'.uniqid().'@example.com');
+        $auction = Auction::create([
+            'title' => 'Buyer isolation',
+            'company' => 'Scrapify',
+            'status' => 'closed',
+            'direction' => 'forward',
+            'closed_at' => now(),
+        ]);
+        $result = AuctionResult::create([
+            'auction_id' => $auction->id,
+            'auction_type' => 'forward',
+            'status' => 'settled',
+            'closed_at' => now(),
+            'final_value' => 51000,
+            'winner_vendor_id' => $vendorB->id,
+            'ranking_snapshot' => [['rank' => 'H1', 'amount' => '51000', 'vendor_id' => $vendorB->id]],
+        ]);
+        EmdTransaction::create([
+            'auction_id' => $auction->id,
+            'vendor_id' => $vendorA->id,
+            'wallet_id' => $buyerA->wallet->id,
+            'amount' => 1000,
+            'status' => 'locked',
+        ]);
+        $buyerB = $vendorB->user()->firstOrFail();
+        EmdTransaction::create([
+            'auction_id' => $auction->id,
+            'vendor_id' => $vendorB->id,
+            'wallet_id' => $buyerB->wallet->id,
+            'amount' => 2000,
+            'status' => 'locked',
+        ]);
+
+        Sanctum::actingAs($buyerA);
+
+        $this->getJson("/api/v1/auctions/{$auction->code}/result")
+            ->assertForbidden();
+
+        $this->getJson('/api/v1/emd')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.amount_inr', 1000);
+
+        $this->assertNotNull($result->fresh());
+    }
 }
