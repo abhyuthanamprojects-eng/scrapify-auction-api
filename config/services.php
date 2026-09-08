@@ -8,6 +8,15 @@ return [
         'firebase_credentials' => env('FIREBASE_CREDENTIALS'),
     ],
 
+    'cashfree_secure_id' => [
+        'enabled' => env('CASHFREE_SECURE_ID_ENABLED', false),
+        'environment' => env('CASHFREE_SECURE_ID_ENV', 'sandbox'),
+        'client_id' => env('CASHFREE_SECURE_ID_CLIENT_ID'),
+        'client_secret' => env('CASHFREE_SECURE_ID_CLIENT_SECRET'),
+        'base_url' => env('CASHFREE_SECURE_ID_BASE_URL', 'https://sandbox.cashfree.com/verification'),
+        'timeout' => env('CASHFREE_SECURE_ID_TIMEOUT', 30),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services

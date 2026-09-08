@@ -22,4 +22,9 @@ class AuctionTermsAcceptance extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function termsVersion(): BelongsTo
+    {
+        return $this->belongsTo(AuctionTermsVersion::class, 'terms_version_id');
+    }
 }

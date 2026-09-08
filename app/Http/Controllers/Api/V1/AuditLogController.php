@@ -27,6 +27,12 @@ class AuditLogController extends Controller
             $q->where('role', $role);
         }
 
+        foreach (['action', 'entity_type', 'entity_id'] as $field) {
+            if ($value = $request->query($field)) {
+                $q->where($field, $value);
+            }
+        }
+
         if ($from = $request->query('from')) {
             $q->where('created_at', '>=', $from);
         }

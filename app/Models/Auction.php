@@ -19,6 +19,7 @@ class Auction extends Model
         'schedule_start' => 'datetime',
         'schedule_end' => 'datetime',
         'published_at' => 'datetime',
+        'actual_started_at' => 'datetime',
         'closed_at' => 'datetime',
         'publish_channels' => 'array',
         'reserve_na' => 'boolean',
@@ -28,6 +29,7 @@ class Auction extends Model
         'emd_amount' => 'decimal:2',
         'current_highest' => 'decimal:2',
         'final_price' => 'decimal:2',
+        'config_draft' => 'array',
     ];
 
     protected static int $codePad = 4;
@@ -81,6 +83,11 @@ class Auction extends Model
     public function emdTransactions(): HasMany
     {
         return $this->hasMany(EmdTransaction::class);
+    }
+
+    public function result(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(AuctionResult::class);
     }
 
     /** Auctions any unauthenticated visitor may see. */
@@ -137,6 +144,36 @@ class Auction extends Model
     public function termsAcceptances(): HasMany
     {
         return $this->hasMany(AuctionTermsAcceptance::class);
+    }
+
+    public function termsVersions(): HasMany
+    {
+        return $this->hasMany(AuctionTermsVersion::class)->orderByDesc('version');
+    }
+
+    public function slots(): HasMany
+    {
+        return $this->hasMany(AuctionSlot::class)->orderBy('sequence');
+    }
+
+    public function currentTermsVersion(): BelongsTo
+    {
+        return $this->belongsTo(AuctionTermsVersion::class, 'current_terms_version_id');
+    }
+
+    public function configSnapshot(): BelongsTo
+    {
+        return $this->belongsTo(AuctionConfigSnapshot::class, 'config_snapshot_id');
+    }
+
+    public function configSnapshots(): HasMany
+    {
+        return $this->hasMany(AuctionConfigSnapshot::class)->orderByDesc('version');
+    }
+
+    public function frozenConfig(string $key, mixed $fallback = null): mixed
+    {
+        return data_get($this->configSnapshot?->config, $key, $fallback);
     }
 
     /** The user account behind the winning vendor, for order ownership. */

@@ -4,6 +4,8 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use App\Models\BusinessVerification;
+use App\Services\GeneralSettings;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureKycVerified
@@ -38,6 +40,12 @@ class EnsureKycVerified
         $status = strtolower($vendor->status ?? 'pending');
 
         if ($status === 'approved') {
+            if ($user->role === 'seller' && GeneralSettings::bool('seller_kyb_required', true)) {
+                $kyb = BusinessVerification::where('user_id', $user->id)->first();
+                if ($kyb && $kyb->overall_kyb_status !== 'VERIFIED') {
+                    return response()->json(['code' => 'KYB_REQUIRED', 'kyb_status' => $kyb->overall_kyb_status, 'message' => 'Complete Business Verification before performing this seller action.'], 403);
+                }
+            }
             return $next($request);
         }
 

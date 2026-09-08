@@ -22,6 +22,11 @@ class Award extends Model
         return $this->belongsTo(Auction::class);
     }
 
+    public function result(): BelongsTo
+    {
+        return $this->belongsTo(AuctionResult::class, 'result_id');
+    }
+
     public function lot(): BelongsTo
     {
         return $this->belongsTo(Lot::class);

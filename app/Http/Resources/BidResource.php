@@ -11,6 +11,7 @@ class BidResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'slot_id' => $this->slot_id,
             'auction_id' => $this->whenLoaded('auction', fn () => $this->auction->code),
             'sub_lot_id' => $this->whenLoaded('lot', fn () => $this->lot?->code),
             'vendor_id' => $this->whenLoaded('vendor', fn () => $this->vendor->code, $this->vendor_id),

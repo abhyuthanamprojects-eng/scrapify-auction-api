@@ -140,6 +140,15 @@ class WalletController extends Controller
         return response()->json(['emd' => EmdTransaction::find($id)]);
     }
 
+    public function verifyEmd(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['reason' => ['nullable','string','max:500']]);
+        $emd = EmdTransaction::whereKey($id)->lockForUpdate()->firstOrFail();
+        abort_unless($emd->status === 'locked' || $emd->status === 'pending', 422, 'EMD is not awaiting verification.');
+        $emd->update(['status'=>'locked','verified_amount'=>$emd->paid_amount ?: $emd->amount,'verified_by'=>$request->user()->id,'verified_at'=>now(),'verification_reason'=>$data['reason']??null,'locked_at'=>$emd->locked_at??now()]);
+        return response()->json(['emd'=>$emd->fresh()]);
+    }
+
     public function emdList(Request $request): JsonResponse
     {
         $q = EmdTransaction::query()->with(['auction', 'vendor']);

@@ -113,16 +113,16 @@ class MasterAuctionBiddingFlowTest extends TestCase
         ]);
         $res->assertStatus(403);
 
-        // 2. Seller attempts to create Reverse Auction -> 403 Blocked
+        // 2. Seller may create either auction direction; ownership is role-based.
         Sanctum::actingAs($this->sellerUser);
         $res = $this->postJson('/api/v1/auctions', [
-            'title' => 'Unauthorized Reverse Auction',
+            'title' => 'Reverse Procurement Auction',
             'company' => 'Apex Metals Disposal Ltd',
             'direction' => 'reverse',
             'starting_price' => 45000,
             'bid_increment' => 500,
         ]);
-        $res->assertStatus(403);
+        $res->assertStatus(201);
 
         // 3. Seller creates Forward Auction -> 201 Created
         Sanctum::actingAs($this->sellerUser);
@@ -138,7 +138,7 @@ class MasterAuctionBiddingFlowTest extends TestCase
         ]);
         $res->assertStatus(201);
 
-        // 4. Buyer creates Reverse Auction -> 201 Created
+        // 4. Buyer cannot create an auction; buyers participate in seller auctions.
         Sanctum::actingAs($this->buyerUser1);
         $res = $this->postJson('/api/v1/auctions', [
             'title' => 'Procurement Tender for Copper Wire',
@@ -150,7 +150,7 @@ class MasterAuctionBiddingFlowTest extends TestCase
             'emd_amount' => 5000,
             'status' => 'draft',
         ]);
-        $res->assertStatus(201);
+        $res->assertStatus(403);
     }
 
     public function test_complete_forward_auction_bidding_lifecycle(): void
@@ -184,10 +184,10 @@ class MasterAuctionBiddingFlowTest extends TestCase
         $auction = Auction::where('code', $code)->firstOrFail();
         $auction->update(['status' => 'live']);
 
-        // 2. Self-bidding prevention: Seller attempts to bid on own auction -> 422
+        // 2. Self-bidding prevention: Seller cannot bid -> 403
         Sanctum::actingAs($this->sellerUser);
         $selfRes = $this->postJson("/api/v1/auctions/{$code}/bids", ['amount' => 50000]);
-        $selfRes->assertStatus(422);
+        $selfRes->assertStatus(403);
 
         // 3. First Bid Validation: Buyer bids below starting price -> 422
         Sanctum::actingAs($this->buyerUser1);
@@ -279,8 +279,8 @@ class MasterAuctionBiddingFlowTest extends TestCase
 
     public function test_complete_reverse_auction_tender_lifecycle(): void
     {
-        // 1. Buyer creates Reverse Procurement Tender
-        Sanctum::actingAs($this->buyerUser1);
+        // 1. Seller creates Reverse Procurement Tender
+        Sanctum::actingAs($this->sellerUser);
         $res = $this->postJson('/api/v1/auctions', [
             'title' => 'Tender for 100 MT Aluminum Ingots',
             'company' => 'Bharat Smelters Corp',
@@ -305,16 +305,16 @@ class MasterAuctionBiddingFlowTest extends TestCase
         $auction = Auction::where('code', $code)->firstOrFail();
         $auction->update(['status' => 'live']);
 
-        // Fund seller wallet for EMD
-        $ws = app(WalletService::class)->forUser($this->sellerUser);
+        // Fund buyer wallet for EMD
+        $ws = app(WalletService::class)->forUser($this->buyerUser1);
         app(WalletService::class)->credit($ws, 'add_money', 50000.0, ['note' => 'Seller test funding']);
 
-        // 2. Buyer cannot bid on own reverse tender -> 422
-        Sanctum::actingAs($this->buyerUser1);
-        $this->postJson("/api/v1/auctions/{$code}/bids", ['amount' => 44000])->assertStatus(422);
+        // 2. Seller cannot bid on its own reverse tender -> 403
+        Sanctum::actingAs($this->sellerUser);
+        $this->postJson("/api/v1/auctions/{$code}/bids", ['amount' => 44000])->assertStatus(403);
 
         // 3. First Quote Validation: Quote exceeding starting ceiling -> 422
-        Sanctum::actingAs($this->sellerUser);
+        Sanctum::actingAs($this->buyerUser1);
         $this->postJson("/api/v1/auctions/{$code}/bids", ['amount' => 46000])->assertStatus(422);
 
         // 4. Valid First Quote: 45,000 -> 201 (L1 = 45,000)
@@ -341,7 +341,7 @@ class MasterAuctionBiddingFlowTest extends TestCase
 
         $auction->refresh();
         $this->assertEquals('closed', $auction->status);
-        $this->assertEquals($this->sellerVendor->id, $auction->winner_vendor_id);
+        $this->assertEquals($this->buyerVendor1->id, $auction->winner_vendor_id);
         $this->assertEquals(44500, (float) $auction->final_price);
     }
 

@@ -38,14 +38,18 @@ class EmdService
         }
 
         $wallet = $this->wallets->forUser($user);
-        $amount = (float) $auction->emd_amount;
+        $config = $auction->configSnapshot?->config ?? [];
+        if (array_key_exists('emd_required', $config) && ! $config['emd_required']) $amount = 0.0;
+        elseif (($config['emd_type'] ?? 'PERCENTAGE') === 'FIXED') $amount = (float) ($config['emd_fixed_amount'] ?? $auction->emd_amount);
+        elseif ($auction->final_rfq_value !== null) $amount = round((float) $auction->final_rfq_value * ((float) ($config['emd_percentage'] ?? 10) / 100), 2);
+        else $amount = (float) $auction->emd_amount;
 
         if ($amount <= 0) {
             // No EMD configured for this auction — record a zero hold so the
             // bidding path stays uniform.
             return EmdTransaction::updateOrCreate(
                 ['auction_id' => $auction->id, 'lot_id' => $lotId, 'vendor_id' => $vendor->id],
-                ['wallet_id' => $wallet->id, 'amount' => 0, 'status' => 'locked', 'locked_at' => now()],
+                ['wallet_id' => $wallet->id, 'amount' => 0, 'required_amount' => 0, 'paid_amount' => 0, 'verified_amount' => 0, 'status' => 'locked', 'locked_at' => now(), 'config_snapshot_id' => $auction->config_snapshot_id],
             );
         }
 
@@ -61,6 +65,7 @@ class EmdService
             [
                 'wallet_id' => $wallet->id,
                 'amount' => $amount,
+                'required_amount' => $amount, 'paid_amount' => $amount, 'verified_amount' => $amount, 'config_snapshot_id' => $auction->config_snapshot_id,
                 'status' => 'locked',
                 'reference' => $txn->reference,
                 'locked_at' => now(),

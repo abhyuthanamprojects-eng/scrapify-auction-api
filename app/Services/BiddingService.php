@@ -9,6 +9,7 @@ use App\Models\Lot;
 use App\Models\ProxyBid;
 use App\Models\User;
 use App\Models\Vendor;
+use App\Models\AuctionSlot;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -26,11 +27,34 @@ class BiddingService
      * hitting the same increment cannot both win the race. On MySQL this is a
      * SELECT ... FOR UPDATE; SQLite serialises writes, which covers local dev.
      */
-    public function place(Auction $auction, Vendor $vendor, ?User $user, float $amount, ?int $lotId = null, ?string $ip = null, bool $isProxy = false): Bid
+    public function place(Auction $auction, Vendor $vendor, ?User $user, float $amount, ?int $lotId = null, ?string $ip = null, bool $isProxy = false, ?string $idempotencyKey = null): Bid
     {
-        return DB::transaction(function () use ($auction, $vendor, $user, $amount, $lotId, $ip, $isProxy) {
+        return DB::transaction(function () use ($auction, $vendor, $user, $amount, $lotId, $ip, $isProxy, $idempotencyKey) {
             /** @var Auction $auction */
             $auction = Auction::whereKey($auction->id)->lockForUpdate()->firstOrFail();
+
+            if ($idempotencyKey) {
+                $existing = Bid::where('auction_id', $auction->id)
+                    ->where('user_id', $user?->id)
+                    ->where('idempotency_key', $idempotencyKey)
+                    ->first();
+                if ($existing) {
+                    return $existing;
+                }
+            }
+
+            $slot = $auction->slots()->where('status', 'active')->where('starts_at', '<=', now())->where('ends_at', '>', now())->lockForUpdate()->first();
+            // Backward-compatible recovery for auctions created before slot
+            // persistence was introduced. The server still owns the timing.
+            if (! $slot && $auction->status === 'live') {
+                $endsAt = $auction->schedule_end?->copy() ?? now()->addMinutes(\App\Services\GeneralSettings::int('maximum_auction_duration_minutes', 120));
+                $slot = AuctionSlot::firstOrCreate(
+                    ['auction_id' => $auction->id, 'sequence' => 1],
+                    ['type' => 'initial', 'starts_at' => $auction->schedule_start ?? now(), 'ends_at' => $endsAt, 'cutoff_at' => $endsAt->copy()->subMilliseconds(\App\Services\GeneralSettings::int('bid_cutoff_ms', 500)), 'status' => 'active'],
+                );
+            }
+            abort_unless($slot, 422, 'There is no active auction slot.');
+            abort_if(now()->greaterThanOrEqualTo($slot->cutoff_at), 422, 'Bidding is closed for this slot.');
 
             $lot = null;
             if ($auction->isLotWise()) {
@@ -110,22 +134,28 @@ class BiddingService
                 'amount' => $amount,
                 'is_proxy' => $isProxy,
                 'ip' => $ip,
+                'slot_id' => $slot->id,
+                'idempotency_key' => $idempotencyKey,
             ]);
 
             $this->refreshTotals($auction, $lot);
 
-            // Anti-sniping: Auto-extend by 3 minutes if bid placed in the final 3 minutes
-            if ($auction->schedule_end && now()->lt($auction->schedule_end) && now()->diffInSeconds($auction->schedule_end, false) <= 180) {
-                $auction->update([
-                    'schedule_end' => $auction->schedule_end->addMinutes(3),
-                ]);
-                \App\Models\AuctionExtension::create([
-                    'auction_id' => $auction->id,
-                    'user_id' => $user?->id,
-                    'minutes' => 3,
-                    'reason' => 'Auto-extension triggered by bid within final 3 minutes (anti-sniping).',
-                ]);
-                broadcast(new \App\Events\AuctionStateChanged($auction, 'extended'));
+            // Legacy auctions created before authoritative START may still
+            // use the historical schedule extension behavior. New auctions
+            // with actual_started_at use immutable slot ends; continuation is
+            // an explicit new slot operation.
+            if (! $auction->actual_started_at && $auction->schedule_end && now()->lt($auction->schedule_end)) {
+                $continuationMinutes = \App\Services\GeneralSettings::int('continuation_slot_minutes', 2);
+                if (now()->diffInSeconds($auction->schedule_end, false) <= ($continuationMinutes * 60)) {
+                    $auction->update(['schedule_end' => $auction->schedule_end->addMinutes($continuationMinutes)]);
+                    \App\Models\AuctionExtension::create([
+                        'auction_id' => $auction->id,
+                        'user_id' => $user?->id,
+                        'minutes' => $continuationMinutes,
+                        'reason' => "Legacy schedule extension triggered by bid within final {$continuationMinutes} minutes.",
+                    ]);
+                    broadcast(new \App\Events\AuctionStateChanged($auction, 'extended'));
+                }
             }
 
             if ($previousLeader && $previousLeader->vendor_id !== $vendor->id) {
@@ -229,7 +259,8 @@ class BiddingService
         $lot ? $q->where('lot_id', $lot->id) : $q->whereNull('lot_id');
 
         return $q->orderBy('amount', $auction->isReverse() ? 'asc' : 'desc')
-            ->orderByDesc('id')
+            ->orderBy('created_at')
+            ->orderBy('id')
             ->first();
     }
 
@@ -266,6 +297,13 @@ class BiddingService
             ]);
         }
 
+        if ($auction->actual_started_at && $auction->config_snapshot_id && $auction->current_terms_version_id) {
+            $eligibility = app(AuctionEligibilityService::class)->evaluate($auction, $vendor);
+            if (! $eligibility['eligible']) {
+                throw ValidationException::withMessages(['participant' => 'Participant is not eligible: '.implode(', ', $eligibility['reasons'])]);
+            }
+        }
+
         if (! $vendor->canBid()) {
             throw ValidationException::withMessages([
                 'vendor' => "Bidding is locked until your registration is approved (status: {$vendor->status}).",
@@ -285,22 +323,14 @@ class BiddingService
             ]);
         }
 
-        // Role direction rules:
-        // Forward Auction: Only buyers (or dual-role vendors) may bid.
-        // Reverse Auction: Only sellers/suppliers (or dual-role vendors) may quote.
+        // User-side role rules: sellers create/own auctions; buyers participate
+        // in both forward and reverse auctions. The auction direction changes
+        // price ranking, not who owns the participant relationship.
         $role = $vendor->user?->role ?? $user?->role;
-        if ($auction->isReverse()) {
-            if ($role === 'buyer') {
-                throw ValidationException::withMessages([
-                    'vendor' => 'Only registered sellers/suppliers can participate in reverse procurement auctions.',
-                ]);
-            }
-        } else {
-            if ($role === 'seller') {
-                throw ValidationException::withMessages([
-                    'vendor' => 'Only registered buyers can participate in forward disposal auctions.',
-                ]);
-            }
+        if ($role !== 'buyer') {
+            throw ValidationException::withMessages([
+                'vendor' => 'Only buyer accounts can participate in auctions.',
+            ]);
         }
     }
 }

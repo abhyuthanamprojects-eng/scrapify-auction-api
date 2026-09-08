@@ -35,6 +35,7 @@ class BidController extends Controller
         $data = $request->validate([
             'amount' => ['required', 'numeric', 'min:0'],
             'lot' => ['sometimes', 'nullable', 'string', 'exists:lots,code'],
+            'idempotency_key' => ['sometimes', 'nullable', 'string', 'max:100'],
         ]);
 
         $auction = Auction::where('code', $code)->firstOrFail();
@@ -54,6 +55,7 @@ class BidController extends Controller
             amount: (float) $data['amount'],
             lotId: $lotId,
             ip: $request->ip(),
+            idempotencyKey: $data['idempotency_key'] ?? $request->header('Idempotency-Key'),
         );
 
         return response()->json([

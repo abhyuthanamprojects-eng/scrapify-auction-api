@@ -16,6 +16,11 @@ class Bid extends Model
         return $this->belongsTo(Auction::class);
     }
 
+    public function slot(): BelongsTo
+    {
+        return $this->belongsTo(AuctionSlot::class, 'slot_id');
+    }
+
     public function lot(): BelongsTo
     {
         return $this->belongsTo(Lot::class);

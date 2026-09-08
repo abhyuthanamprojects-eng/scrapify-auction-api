@@ -23,6 +23,10 @@ class AuditLogger
             return null;
         }
 
+        $meta = array_merge([
+            'request_id' => Request::header('X-Request-ID') ?: Request::header('X-Correlation-ID'),
+        ], $meta);
+
         return AuditLog::create([
             'user_id' => $user?->id,
             'user_name' => $user?->name,
@@ -32,7 +36,7 @@ class AuditLogger
             'entity_id' => $entityId,
             'ip' => Request::ip(),
             'user_agent' => substr((string) Request::userAgent(), 0, 255),
-            'meta' => $meta ?: null,
+            'meta' => array_filter($meta, static fn ($value) => $value !== null) ?: null,
             'created_at' => now(),
         ]);
     }

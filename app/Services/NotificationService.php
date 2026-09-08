@@ -9,13 +9,15 @@ use App\Models\User;
 
 class NotificationService
 {
-    public function push(?User $user, string $type, string $title, ?string $body = null, array $data = []): ?Notification
+    public function push(?User $user, string $type, string $title, ?string $body = null, array $data = [], ?string $businessKey = null): ?Notification
     {
         if (! $user) {
             return null;
         }
 
-        return Notification::create([
+        $businessKey ??= sprintf('%s:%s:%s', $type, $user->id, sha1(json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)));
+
+        return Notification::firstOrCreate(['business_key' => substr($businessKey, 0, 180)], [
             'user_id' => $user->id,
             'type' => $type,
             'title' => $title,

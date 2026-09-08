@@ -32,7 +32,8 @@ return [
             'notifications.view',
             'orders.view', 'orders.manage',
             'wallet.view_any', 'emd.manage',
-            'audit.view',
+            'audit.view', 'auction.result.view', 'winner.manage', 'fallback.manage', 'emd.refund', 'emd.forfeit', 'settlement.approve', 'settlement.complete',
+            'platform.config.update', 'kyb.view', 'kyb.review', 'kyb.approve', 'kyb.reject', 'kyb.retry', 'kyb.settings.manage', 'kyb.audit.view',
         ],
 
         'operations' => [
@@ -45,37 +46,34 @@ return [
             'lots.manage',
             'tokens.create', 'tokens.revoke',
             'notifications.view',
-            'orders.view', 'orders.manage',
+            'orders.view', 'orders.manage', 'kyb.view', 'kyb.review', 'kyb.approve', 'kyb.reject', 'kyb.retry', 'kyb.audit.view',
             'wallet.view_any', 'emd.manage',
-            'audit.view',
+            'audit.view', 'auction.result.view', 'winner.manage', 'fallback.manage', 'emd.refund', 'emd.forfeit', 'settlement.approve', 'settlement.complete',
         ],
 
         'compliance' => [
             ...$view,
             'vendors.approve', 'vendors.reject', 'vendors.suspend', 'vendors.update',
-            'audit.view',
-            'notifications.view',
+            'audit.view', 'auction.result.view',
+            'notifications.view', 'kyb.view',
         ],
 
         'buyer' => [
             'auctions.view', 'lots.view', 'bids.view',
-            'auctions.create', 'auctions.update', 'auctions.submit',
             'bids.place', 'bids.proxy',
-            'emd.lock', 'emd.release',
+            'emd.lock',
             'wallet.view', 'wallet.topup',
             'watchlist.manage', 'interest.mark',
             'orders.view_own', 'orders.pay',
-            'profile.manage', 'notifications.view',
+            'profile.manage', 'notifications.view', 'kyb.view',
         ],
 
         'seller' => [
             'auctions.view', 'lots.view', 'bids.view',
             'auctions.create', 'auctions.update', 'auctions.submit',
-            'bids.place', 'bids.proxy',
-            'emd.lock', 'emd.release',
             'lots.manage',
             'wallet.view', 'orders.view_own',
-            'profile.manage', 'notifications.view',
+            'profile.manage', 'notifications.view', 'kyb.view',
         ],
 
         'procurement_manager' => [
@@ -86,7 +84,7 @@ return [
 
         'finance_manager' => [
             ...$view,
-            'wallet.view_any', 'emd.manage', 'orders.view', 'orders.manage',
+            'wallet.view_any', 'emd.manage', 'orders.view', 'orders.manage', 'auction.result.view', 'emd.refund', 'emd.forfeit', 'settlement.approve', 'settlement.complete',
             'payments.manage',
         ],
 

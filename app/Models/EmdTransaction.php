@@ -11,7 +11,9 @@ class EmdTransaction extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'required_amount' => 'decimal:2', 'paid_amount' => 'decimal:2', 'verified_amount' => 'decimal:2', 'refunded_amount' => 'decimal:2', 'forfeited_amount' => 'decimal:2',
         'locked_at' => 'datetime',
+        'verified_at' => 'datetime',
         'released_at' => 'datetime',
     ];
 

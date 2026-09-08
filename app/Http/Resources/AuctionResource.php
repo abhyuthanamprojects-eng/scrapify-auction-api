@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Services\GeneralSettings;
 
 /**
  * Field names mirror the admin panel's `Auction` type and the mobile demo's
@@ -14,6 +15,8 @@ class AuctionResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $user = $request->user();
+        $private = $user && ($user->hasPermission('auctions.approve') || $this->submitted_by === $user->id);
         return [
             'id' => $this->code,
             'code' => $this->code,
@@ -39,14 +42,33 @@ class AuctionResource extends JsonResource
             'bidders' => $this->bidders_count,
             'status' => $this->status,
             'submitted_by' => $this->submitted_by_name,
+            'owner_user_id' => $this->submitted_by,
             'submitted_at' => $this->submitted_at?->toIso8601String(),
             'schedule_start' => $this->schedule_start?->toIso8601String(),
             'schedule_end' => $this->schedule_end?->toIso8601String(),
+            'actual_started_at' => $this->actual_started_at?->toIso8601String(),
+            'hard_end_at' => $this->schedule_end?->toIso8601String(),
             'inspection' => $this->inspection,
             'inspection_date' => $this->inspection_date,
             'inspection_time' => $this->inspection_time,
             'inspection_location' => $this->inspection_location,
             'terms' => $this->terms,
+            'terms_version' => $this->current_terms_version_id ? [
+                'id' => $this->current_terms_version_id,
+                'version' => $this->currentTermsVersion?->version,
+                'published_at' => $this->currentTermsVersion?->published_at?->toIso8601String(),
+                'rules' => $this->currentTermsVersion?->rules,
+            ] : null,
+            'slots' => $this->whenLoaded('slots', fn () => $this->slots->map(fn ($slot) => [
+                'id' => $slot->id,
+                'sequence' => $slot->sequence,
+                'type' => $slot->type,
+                'starts_at' => $slot->starts_at?->toIso8601String(),
+                'ends_at' => $slot->ends_at?->toIso8601String(),
+                'cutoff_at' => $slot->cutoff_at?->toIso8601String(),
+                'status' => $slot->status,
+                'close_reason' => $slot->close_reason,
+            ])),
             'payment_terms' => $this->payment_terms,
             'lifting_period' => $this->lifting_period,
             'lifting_unit' => $this->lifting_unit,
@@ -63,19 +85,21 @@ class AuctionResource extends JsonResource
                 'minutes' => $e->minutes,
                 'at' => $e->created_at?->toIso8601String(),
             ])),
-            'review_comment' => $this->review_comment,
+            'review_comment' => $this->when($private, $this->review_comment),
             'published_at' => $this->published_at?->toIso8601String(),
             'publish_channels' => $this->publish_channels,
             'closed_at' => $this->closed_at?->toIso8601String(),
             'final_price_inr' => $this->final_price !== null ? (float) $this->final_price : null,
-            'winner' => $this->winner_name,
-            'winner_vendor_id' => $this->winner_vendor_id,
+            'winner' => $this->when($private, $this->winner_name),
+            'winner_vendor_id' => $this->when($private, $this->winner_vendor_id),
             'is_reserve_met' => $this->status === 'closed'
                 ? ($this->review_comment !== 'Reserve price not met' && ($this->winner_vendor_id !== null || $this->reserve_na || $this->reserve_price === null))
                 : null,
             'interested_count' => $this->whenCounted('interestedBidders'),
             'allowed_actions' => [
-                'can_edit' => in_array($this->status, ['draft', 'sent_back'], true),
+                'can_edit' => $private && in_array($this->status, ['draft', 'sent_back'], true)
+                    && (! $this->schedule_start || now()->lt($this->schedule_start->copy()->subHours(GeneralSettings::int('auction_edit_lock_hours', 3)))),
+                'edit_lock_hours' => GeneralSettings::int('auction_edit_lock_hours', 3),
                 'can_submit' => in_array($this->status, ['draft', 'sent_back'], true),
                 'can_bid' => $this->status === 'live',
                 'can_join' => in_array($this->status, ['published', 'live'], true),

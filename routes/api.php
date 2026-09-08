@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\AuctionController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AwardController;
+use App\Http\Controllers\Api\V1\SettlementController;
 use App\Http\Controllers\Api\V1\BidController;
 use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\ClarificationController;
@@ -28,6 +29,7 @@ use App\Http\Controllers\Api\V1\TokenController;
 use App\Http\Controllers\Api\V1\VendorController;
 use App\Http\Controllers\Api\V1\WalletController;
 use App\Http\Controllers\Api\V1\WatchlistController;
+use App\Http\Controllers\Api\V1\BusinessVerificationController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -61,6 +63,8 @@ Route::prefix('v1')->group(function () {
     Route::get('auctions/{code}/lots/{lot}', [LotController::class, 'show']);
     Route::get('auctions/{code}/bids', [BidController::class, 'index']);
     Route::get('auctions/{code}/live-state', [AuctionController::class, 'liveState']);
+    Route::get('auctions/{code}/readiness', [AuctionController::class, 'readiness']);
+    Route::get('auctions/{code}/rfq-template', [AuctionController::class, 'rfqTemplate']);
     Route::post('auctions/{code}/interested', [AuctionController::class, 'markInterested']);
     Route::delete('auctions/{code}/interested', [AuctionController::class, 'unmarkInterested']);
     Route::get('tokens/validate/{token}', [TokenController::class, 'validateToken']);
@@ -71,6 +75,22 @@ Route::prefix('v1')->group(function () {
 
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
+
+        /* Business KYB — provider calls remain backend-only. */
+        Route::get('kyb/status', [BusinessVerificationController::class, 'status'])->middleware('permission:kyb.view');
+        Route::get('kyb/history', [BusinessVerificationController::class, 'history'])->middleware('permission:kyb.view');
+        Route::post('kyb/gstin/verify', [BusinessVerificationController::class, 'verifyGstin'])->middleware('permission:kyb.view');
+        Route::post('kyb/bank/verify', [BusinessVerificationController::class, 'verifyBank'])->middleware('permission:kyb.view');
+        Route::post('kyb/reverify', [BusinessVerificationController::class, 'reverify'])->middleware('permission:kyb.view');
+        Route::get('admin/kyb', [BusinessVerificationController::class, 'adminIndex'])->middleware('permission:kyb.view');
+        Route::get('admin/kyb/{id}', [BusinessVerificationController::class, 'adminShow'])->middleware('permission:kyb.view');
+        Route::post('admin/kyb/{id}/approve', [BusinessVerificationController::class, 'approve'])->middleware('permission:kyb.approve');
+        Route::post('admin/kyb/{id}/reject', [BusinessVerificationController::class, 'reject'])->middleware('permission:kyb.reject');
+        Route::post('admin/kyb/{id}/request-reverification', [BusinessVerificationController::class, 'requestReverification'])->middleware('permission:kyb.review');
+        Route::patch('platform-config', [PlatformConfigController::class, 'update'])
+            ->middleware('permission:platform.config.update');
+        Route::get('my-auctions', [AuctionController::class, 'index'])
+            ->middleware('permission:auctions.view');
 
         /* profile, addresses, payment methods */
         Route::patch('profile', [ProfileController::class, 'update']);
@@ -101,6 +121,13 @@ Route::prefix('v1')->group(function () {
 
         /* auction terms acceptance */
         Route::post('auctions/{code}/terms/accept', [AuctionController::class, 'acceptTerms']);
+        Route::post('auctions/{code}/rfq-submissions', [AuctionController::class, 'submitRfq'])->middleware('kyc.verified');
+        Route::post('auctions/{code}/rfq-submissions/{submissionId}/review', [AuctionController::class, 'reviewRfq'])->middleware('permission:auctions.approve');
+        Route::post('auctions/{code}/rfq/benchmark/finalize', [AuctionController::class, 'finalizeRfqBenchmark'])->middleware('permission:auctions.approve');
+        Route::post('auctions/{code}/rfq/discovery', [AuctionController::class, 'createDiscoveryRound'])->middleware('permission:auctions.approve');
+        Route::post('auctions/{code}/rfq/discovery/{roundId}/start', [AuctionController::class, 'startDiscoveryRound'])->middleware('permission:auctions.approve');
+        Route::post('auctions/{code}/rfq/discovery/{roundId}/submit', [AuctionController::class, 'submitDiscovery'])->middleware('kyc.verified');
+        Route::post('auctions/{code}/rfq/discovery/{roundId}/close', [AuctionController::class, 'closeDiscoveryRound'])->middleware('permission:auctions.approve');
 
         /* vendors */
         Route::post('vendors/register', [VendorController::class, 'register']);
@@ -133,6 +160,8 @@ Route::prefix('v1')->group(function () {
             ->middleware(['permission:auctions.create', 'kyc.verified']);
         Route::patch('auctions/{code}', [AuctionController::class, 'update'])
             ->middleware('permission:auctions.update');
+        Route::patch('auctions/{code}/configuration', [AuctionController::class, 'updateConfiguration'])
+            ->middleware('permission:auctions.update');
         Route::post('auctions/{code}/submit', [AuctionController::class, 'submit'])
             ->middleware(['permission:auctions.submit', 'kyc.verified']);
         Route::post('auctions/{code}/approve', [AuctionController::class, 'approve'])
@@ -147,8 +176,25 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:auctions.publish');
         Route::post('auctions/{code}/extend', [AuctionController::class, 'extend'])
             ->middleware('permission:auctions.extend');
+        Route::post('auctions/{code}/slots/{slot}/close', [AuctionController::class, 'closeSlot'])
+            ->middleware('permission:auctions.close');
+        Route::post('auctions/{code}/slots/next', [AuctionController::class, 'createContinuationSlot'])
+            ->middleware('permission:auctions.extend');
         Route::post('auctions/{code}/close', [AuctionController::class, 'close'])
             ->middleware('permission:auctions.close');
+        Route::get('auctions/{code}/result', [AuctionController::class, 'result']);
+        Route::get('auctions/{code}/settlement', [SettlementController::class, 'show'])
+            ->middleware('permission:auction.result.view');
+        Route::post('settlement/ledger/{id}/refund/start', [SettlementController::class, 'startRefund'])
+            ->middleware('permission:emd.refund');
+        Route::post('settlement/ledger/{id}/refund/complete', [SettlementController::class, 'completeRefund'])
+            ->middleware('permission:settlement.complete');
+        Route::post('settlement/ledger/{id}/loss-adjustment', [SettlementController::class, 'applyLoss'])
+            ->middleware('permission:settlement.approve');
+        Route::post('auctions/{code}/settlement/release-fallback', [SettlementController::class, 'releaseFallback'])
+            ->middleware('permission:settlement.complete');
+        Route::post('auctions/{code}/settlement/complete', [SettlementController::class, 'completeSettlement'])
+            ->middleware('permission:settlement.complete');
         Route::post('auctions/{code}/cancel', [AuctionController::class, 'cancel'])
             ->middleware('permission:auctions.close');
 
@@ -186,6 +232,8 @@ Route::prefix('v1')->group(function () {
             ->middleware(['permission:emd.lock,emd.manage', 'kyc.verified']);
         Route::post('emd/{id}/release', [WalletController::class, 'releaseEmd']);
         Route::post('emd/{id}/forfeit', [WalletController::class, 'forfeitEmd'])
+            ->middleware('permission:emd.manage');
+        Route::post('emd/{id}/verify', [WalletController::class, 'verifyEmd'])
             ->middleware('permission:emd.manage');
 
         /* orders and fulfilment */
@@ -236,8 +284,13 @@ Route::prefix('v1')->group(function () {
         Route::post('auctions/{code}/awards', [AwardController::class, 'issueAward'])
             ->middleware('permission:auctions.approve');
         Route::post('awards/{id}/accept', [AwardController::class, 'accept']);
+        Route::post('awards/{id}/admin-accept', [AwardController::class, 'adminAccept'])
+            ->middleware('permission:winner.manage');
+        Route::post('awards/{id}/decline', [AwardController::class, 'decline']);
+        Route::post('fallback-offers/{id}/accept', [AwardController::class, 'acceptFallback']);
+        Route::post('fallback-offers/{id}/decline', [AwardController::class, 'declineFallback']);
         Route::post('awards/{id}/default', [AwardController::class, 'defaultWinner'])
-            ->middleware('permission:auctions.approve');
+            ->middleware('permission:winner.manage');
 
         /* disputes and arbitration */
         Route::get('disputes', [DisputeController::class, 'index']);
