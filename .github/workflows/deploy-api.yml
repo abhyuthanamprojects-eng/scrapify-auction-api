@@ -19,6 +19,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Build production dependencies
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sodium
+          tools: composer
+
+      - name: Install production dependencies on runner
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev --no-scripts
+
+      - name: Package production dependencies
+        run: tar -czf "$RUNNER_TEMP/scrapify-vendor.tar.gz" vendor
+
+      - name: Upload production dependencies
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          port: ${{ secrets.HOSTINGER_PORT }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          source: ${{ runner.temp }}/scrapify-vendor.tar.gz
+          target: /home/u551475123/domains/api.scrapifyauctions.com
+          overwrite: true
+
       - name: Deploy to Hostinger
         uses: appleboy/ssh-action@v1.2.1
         with:
@@ -56,6 +80,14 @@ jobs:
               rm -rf "$DEPLOY_PATH/$dir"
               cp -r "$DEPLOY_PATH/repo/$dir" "$DEPLOY_PATH/$dir"
             done
+
+            # Composer is blocked by Hostinger's DISEVAL hardening. Dependencies
+            # are resolved on the GitHub runner and uploaded as an artifact.
+            echo "✓ Installing uploaded production dependencies..."
+            test -f "$DEPLOY_PATH/scrapify-vendor.tar.gz"
+            rm -rf "$DEPLOY_PATH/vendor"
+            tar -xzf "$DEPLOY_PATH/scrapify-vendor.tar.gz" -C "$DEPLOY_PATH"
+            rm -f "$DEPLOY_PATH/scrapify-vendor.tar.gz"
             for file in artisan composer.json composer.lock; do
               cp "$DEPLOY_PATH/repo/$file" "$DEPLOY_PATH/$file"
             done
@@ -114,12 +146,9 @@ jobs:
               php artisan key:generate --force
             fi
 
-            # 8. Install the deployed production dependency set.
-            echo "✓ Installing production dependencies..."
-            composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
-
-            # 9. Clear stale compiled state before booting the new release.
+            # 8. Clear stale compiled state before booting the new release.
             echo "✓ Clearing Laravel caches..."
+            php artisan package:discover --ansi
             php artisan optimize:clear
             php artisan about >/dev/null
 
