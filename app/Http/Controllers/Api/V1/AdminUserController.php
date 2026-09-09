@@ -15,7 +15,7 @@ class AdminUserController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
-        $q = User::query()->with(['organization', 'vendor']);
+        $q = User::query()->with(['organization', 'vendor', 'businessVerification']);
 
         if ($orgId = $request->query('organization_id')) {
             $org = \App\Models\Organization::where('code', $orgId)->first();
@@ -29,17 +29,41 @@ class AdminUserController extends Controller
         }
 
         if ($status = $request->query('status')) {
-            $q->where('status', $status);
+            if (in_array($status, ['pending', 'approved', 'rejected'], true)) {
+                $q->whereHas('vendor', fn ($v) => $v->where('status', $status));
+            } elseif ($status === 'blocked') {
+                $q->where('status', 'inactive');
+            } elseif ($status === 'suspended') {
+                $q->where(fn ($w) => $w->where('status', 'suspended')
+                    ->orWhereHas('vendor', fn ($v) => $v->where('status', 'suspended')));
+            } else {
+                $q->where('status', $status);
+            }
+        }
+
+        if ($approval = $request->query('approval_status')) {
+            $q->whereHas('vendor', fn ($v) => $v->where('status', $approval));
+        }
+        if ($kyb = $request->query('kyb_status')) {
+            if (strtoupper($kyb) === 'PENDING') {
+                $q->whereIn('role', ['buyer', 'seller'])->where(fn ($w) =>
+                    $w->whereDoesntHave('businessVerification')->orWhereHas('businessVerification',
+                        fn ($v) => $v->whereIn('overall_kyb_status', ['NOT_STARTED', 'PENDING', 'IN_PROGRESS', 'REVIEW_REQUIRED', 'REVERIFICATION_REQUIRED'])));
+            } else {
+                $q->whereHas('businessVerification', fn ($v) => $v->where('overall_kyb_status', strtoupper($kyb)));
+            }
         }
 
         if ($search = $request->query('search')) {
             $q->where(fn ($w) => $w->where('name', 'like', "%{$search}%")
                 ->orWhere('email', 'like', "%{$search}%")
-                ->orWhere('phone', 'like', "%{$search}%"));
+                ->orWhere('phone', 'like', "%{$search}%")
+                ->orWhereHas('vendor', fn ($v) => $v->where('company_name', 'like', "%{$search}%")
+                    ->orWhere('gst_number', 'like', "%{$search}%")));
         }
 
         return UserResource::collection(
-            $q->orderByDesc('created_at')->paginate((int) $request->query('per_page', 25)),
+            $q->orderByDesc('created_at')->paginate(max(1, min(100, (int) $request->query('per_page', 25)))),
         );
     }
 
@@ -75,9 +99,9 @@ class AdminUserController extends Controller
             ->setStatusCode(201);
     }
 
-    public function update(Request $request, int $id): UserResource
+    public function update(Request $request, string $id): UserResource
     {
-        $user = User::findOrFail($id);
+        $user = User::where('uuid', $id)->when(ctype_digit($id), fn ($q) => $q->orWhere('id', $id))->firstOrFail();
 
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:120'],

@@ -68,6 +68,11 @@ class User extends Authenticatable
         return $this->belongsTo(Organization::class);
     }
 
+    public function businessVerification(): HasOne
+    {
+        return $this->hasOne(BusinessVerification::class);
+    }
+
     public function wallet(): HasOne
     {
         return $this->hasOne(Wallet::class);

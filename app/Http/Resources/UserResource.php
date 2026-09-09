@@ -11,6 +11,7 @@ class UserResource extends JsonResource
     {
         return [
             'id' => $this->uuid,
+            'database_id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
             'phone' => $this->phone,
@@ -31,6 +32,9 @@ class UserResource extends JsonResource
                 'registration_step' => $this->vendor->registration_step,
                 'can_bid' => $this->vendor->canBid(),
             ] : null),
+            'created_at' => $this->created_at?->toIso8601String(),
+            'approval_status' => $this->whenLoaded('vendor', fn () => $this->vendor?->status),
+            'kyb_status' => $this->when($this->relationLoaded('businessVerification'), fn () => $this->businessVerification?->overall_kyb_status ?? ($this->isPublicUser() ? 'NOT_STARTED' : null)),
             'kyc_verified' => $this->relationLoaded('vendor') && $this->vendor?->status === 'approved',
             'email_verified_at' => $this->email_verified_at?->toIso8601String(),
             'phone_verified_at' => $this->phone_verified_at?->toIso8601String(),

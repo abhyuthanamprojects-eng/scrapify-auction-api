@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('business_verifications', function (Blueprint $table): void {
+        if (! Schema::hasTable('business_verifications')) Schema::create('business_verifications', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('vendor_id')->nullable()->constrained()->nullOnDelete();
@@ -53,7 +53,7 @@ return new class extends Migration {
             $table->index('gstin');
         });
 
-        Schema::create('verification_provider_requests', function (Blueprint $table): void {
+        if (! Schema::hasTable('verification_provider_requests')) Schema::create('verification_provider_requests', function (Blueprint $table): void {
             $table->id();
             $table->string('provider', 40);
             $table->string('verification_type', 40);
@@ -69,9 +69,16 @@ return new class extends Migration {
             $table->timestamp('completed_at')->nullable();
             $table->unsignedInteger('latency_ms')->nullable();
             $table->timestamps();
-            $table->unique(['user_id', 'verification_type', 'request_hash']);
-            $table->index(['business_verification_id', 'created_at']);
+
         });
+        if (! Schema::hasIndex('verification_provider_requests', 'verification_request_idempotency_unique')) {
+            Schema::table('verification_provider_requests', fn (Blueprint $table) =>
+                $table->unique(['user_id', 'verification_type', 'request_hash'], 'verification_request_idempotency_unique'));
+        }
+        if (! Schema::hasIndex('verification_provider_requests', 'verification_request_history_index')) {
+            Schema::table('verification_provider_requests', fn (Blueprint $table) =>
+                $table->index(['business_verification_id', 'created_at'], 'verification_request_history_index'));
+        }
     }
 
     public function down(): void

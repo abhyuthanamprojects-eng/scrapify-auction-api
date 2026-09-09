@@ -31,15 +31,22 @@ class AuthController extends Controller
             'phone' => ['required', 'string', 'max:20', 'unique:users,phone'],
             'password' => ['required', 'string', 'min:8'],
             'role' => ['sometimes', Rule::in(['buyer', 'seller'])],
+            'registration_type' => ['sometimes', Rule::in(['buyer', 'seller', 'BUYER', 'SELLER'])],
             'company_name' => ['sometimes', 'string', 'max:180'],
         ]);
+
+        $role = strtolower($data['registration_type'] ?? $data['role'] ?? 'buyer');
+        if (isset($data['role'], $data['registration_type']) && strtolower($data['role']) !== $role) {
+            throw ValidationException::withMessages(['registration_type' => 'Registration role does not match the selected account role.']);
+        }
 
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
             'phone' => $data['phone'],
             'password' => $data['password'],
-            'role' => $data['role'] ?? 'buyer',
+            'role' => $role,
+            'status' => 'active',
         ]);
 
         // Buyers and sellers both trade as a vendor company on this platform.
@@ -69,6 +76,7 @@ class AuthController extends Controller
         $data = $request->validate([
             'identifier' => ['required', 'string'],
             'password' => ['required', 'string'],
+            'login_context' => ['sometimes', Rule::in(['buyer', 'seller', 'BUYER', 'SELLER'])],
         ]);
 
         $user = User::where('email', $data['identifier'])
@@ -90,6 +98,20 @@ class AuthController extends Controller
                 'This account must sign in through the Admin Portal.',
                 'ADMIN_LOGIN_NOT_ALLOWED_HERE'
             );
+        }
+
+        // The selector is only a user-facing context hint. The persisted role
+        // remains authoritative and a mismatch must never mint a token.
+        if (isset($data['login_context']) && strtolower($data['login_context']) !== $user->role) {
+            $expected = ucfirst($user->role);
+            AuditLogger::writeFor($user, 'Rejected login for mismatched public role context', 'User', $user->uuid, [
+                'auth_context' => 'public-web',
+                'reason_code' => 'ROLE_CONTEXT_MISMATCH',
+            ]);
+            return response()->json([
+                'message' => "This account is registered as a {$expected}. Please sign in using {$expected} Login.",
+                'error' => ['code' => 'ROLE_CONTEXT_MISMATCH', 'account_role' => $user->role],
+            ], 403);
         }
 
         if ($user->status !== 'active') {

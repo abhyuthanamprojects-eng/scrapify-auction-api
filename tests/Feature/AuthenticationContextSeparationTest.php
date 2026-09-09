@@ -117,4 +117,28 @@ class AuthenticationContextSeparationTest extends TestCase
             'name' => 'admin-panel',
         ]);
     }
+
+    public function test_public_login_rejects_a_mismatched_buyer_or_seller_context(): void
+    {
+        $buyer = User::factory()->create(['role' => 'buyer', 'status' => 'active']);
+        $response = $this->postJson('/api/v1/auth/login', [
+            'identifier' => $buyer->email,
+            'password' => 'password',
+            'login_context' => 'seller',
+        ]);
+        $response->assertForbidden()->assertJsonPath('error.code', 'ROLE_CONTEXT_MISMATCH');
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
+    public function test_registration_persists_the_selected_public_role_and_rejects_admin(): void
+    {
+        $this->postJson('/api/v1/auth/register', [
+            'name' => 'QA Seller', 'email' => 'qa-seller@example.com', 'phone' => '9000000001',
+            'password' => 'StrongPass_1234', 'registration_type' => 'SELLER',
+        ])->assertCreated()->assertJsonPath('user.role', 'seller')->assertJsonPath('user.status', 'active');
+        $this->postJson('/api/v1/auth/register', [
+            'name' => 'Invalid Admin', 'email' => 'qa-admin@example.com', 'phone' => '9000000002',
+            'password' => 'StrongPass_1234', 'registration_type' => 'admin',
+        ])->assertUnprocessable();
+    }
 }
