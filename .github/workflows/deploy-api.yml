@@ -102,7 +102,7 @@ jobs:
             # Hostinger ships Sodium but excludes it from the default CLI
             # scan path. Enable the provider-managed standard extensions for
             # every Composer and Artisan command in this deployment.
-            export PHP_INI_SCAN_DIR="/opt/alt/php83/link/conf:/opt/alt/php83/etc/php.d.std"
+            export PHP_INI_SCAN_DIR="/opt/alt/php83/etc/php.d.std"
             if ! php -m | grep -qi '^sodium$'; then
               echo "ERROR: PHP Sodium extension is unavailable; refusing deployment."
               exit 1
