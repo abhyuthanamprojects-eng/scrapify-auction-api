@@ -175,14 +175,47 @@ class ReportController extends Controller
     /** The admin dashboard's KPI tiles, activity feed and charts. */
     public function dashboard(): JsonResponse
     {
+        $customers = \App\Models\User::whereIn('role', ['buyer', 'seller']);
+        $closed = Auction::where('status', 'closed')->where('closed_at', '>=', now()->startOfMonth()->subMonths(11))->get();
+        $monthly = collect(range(11, 0))->map(function ($offset) use ($closed) {
+            $month = now()->startOfMonth()->subMonths($offset);
+            $rows = $closed->filter(fn ($auction) => $auction->closed_at?->format('Y-m') === $month->format('Y-m'));
+            return ['month' => $month->format('M Y'), 'gmv' => (float) $rows->sum('final_price'), 'auctions' => $rows->count()];
+        });
+
         return response()->json([
             'kpis' => [
+                'total_customers' => (clone $customers)->count(),
+                'active_customers' => (clone $customers)->where('status', 'active')->count(),
+                'verified_vendors' => Vendor::where('status', 'approved')->count(),
+                'pending_kyb' => Vendor::whereIn('status', ['pending', 'under_review'])->count(),
+                'auctions_today' => Auction::whereDate('schedule_start', today())->count(),
+                'upcoming_auctions' => Auction::whereIn('status', ['published', 'scheduled', 'approved'])->where('schedule_start', '>', now())->count(),
+                'open_rfqs' => \App\Models\RfxPackage::where('status', 'open')->count(),
+                'pending_awards' => \App\Models\Award::whereIn('status', ['pending_approval', 'approved', 'offered'])->count(),
+                'pending_approvals' => \App\Models\ApprovalRequest::whereIn('status', ['pending', 'escalated'])->count(),
+                'emd_held' => (float) \App\Models\Wallet::sum('locked'),
+                'refunds_due' => \App\Models\EmdTransaction::whereIn('status', ['refund_pending', 'refund_processing'])->count(),
+                'settlement_due' => (float) \App\Models\Order::where('status', 'awaiting_payment')->sum('balance_due'),
+                'open_disputes' => \App\Models\Dispute::whereNotIn('status', ['resolved', 'closed'])->count(),
+                'critical_security_alerts' => \App\Models\RiskFlag::where('severity', 'critical')->whereNotIn('status', ['resolved', 'false_positive'])->count(),
+                'compliance_expiring' => \App\Models\BusinessVerification::whereBetween('expires_at', [now(), now()->addDays(30)])->count(),
+                'total_auctions' => Auction::count(),
+                'closed_auctions' => Auction::where('status', 'closed')->count(),
+                'gmv' => (float) Auction::where('status', 'closed')->sum('final_price'),
                 'pending_vendors' => Vendor::where('status', 'pending')->count(),
                 'pending_organizations' => Organization::where('status', 'pending_super_admin_approval')->count(),
                 'live_auctions' => Auction::where('status', 'live')->count(),
                 'auctions_awaiting_publish' => Auction::where('status', 'approved')->count(),
                 'total_vendors' => Vendor::count(),
             ],
+            'monthly_volume' => $monthly,
+            'auction_type_mix' => Auction::selectRaw('direction, count(*) as total')->groupBy('direction')->get()->map(fn ($row) => ['name' => ucfirst($row->direction ?: 'Other'), 'value' => (int) $row->total]),
+            'pipeline' => Auction::selectRaw('status, count(*) as total')->groupBy('status')->get()->map(fn ($row) => ['name' => $row->status, 'value' => (int) $row->total]),
+            'live_events' => Auction::where('status', 'live')->with('category')->orderBy('schedule_end')->limit(4)->get()->map(fn ($a) => [
+                'id' => $a->code, 'name' => $a->title, 'category' => $a->category?->name,
+                'price' => (float) $a->current_highest, 'bidders' => (int) $a->bidders_count, 'end_at' => $a->schedule_end?->toIso8601String(),
+            ]),
             'needs_attention' => Auction::where('status', 'pending_approval')
                 ->latest('submitted_at')
                 ->limit(5)
