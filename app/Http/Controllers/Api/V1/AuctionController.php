@@ -260,6 +260,13 @@ class AuctionController extends Controller
         );
 
         $auction->update(['status' => 'pending_approval', 'submitted_at' => now()]);
+        app(\App\Services\NotificationService::class)->notifyAdmins(
+            'AUCTION_REVIEW_REQUIRED',
+            'Auction approval required',
+            "{$auction->title} was submitted for approval.",
+            ['auction_code' => $auction->code, 'auction_id' => $auction->id],
+            "auction:{$auction->id}:approval:{$auction->submitted_at?->timestamp}",
+        );
 
         return new AuctionResource($auction);
     }

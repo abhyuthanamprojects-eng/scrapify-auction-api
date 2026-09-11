@@ -9,6 +9,22 @@ use App\Models\User;
 
 class NotificationService
 {
+    /** Notify every active internal operator without creating a second channel. */
+    public function notifyAdmins(string $type, string $title, ?string $body = null, array $data = [], ?string $businessKey = null): void
+    {
+        User::query()
+            ->where('status', 'active')
+            ->whereIn('role', config('roles.admin_roles', []))
+            ->each(fn (User $admin) => $this->push(
+                $admin,
+                $type,
+                $title,
+                $body,
+                $data,
+                $businessKey ? "{$businessKey}:admin:{$admin->id}" : null,
+            ));
+    }
+
     public function push(?User $user, string $type, string $title, ?string $body = null, array $data = [], ?string $businessKey = null): ?Notification
     {
         if (! $user) {
@@ -16,6 +32,7 @@ class NotificationService
         }
 
         $businessKey ??= sprintf('%s:%s:%s', $type, $user->id, sha1(json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)));
+        $data['deep_link'] ??= $this->deepLink($type, $data);
 
         return Notification::firstOrCreate(['business_key' => substr($businessKey, 0, 180)], [
             'user_id' => $user->id,
@@ -24,6 +41,31 @@ class NotificationService
             'body' => $body,
             'data' => $data ?: null,
         ]);
+    }
+
+    private function deepLink(string $type, array $data): ?string
+    {
+        if (isset($data['result_id'])) {
+            return '/results/'.rawurlencode((string) $data['result_id']);
+        }
+
+        if (isset($data['verification_id'])) {
+            return '/business-verification';
+        }
+
+        if (isset($data['auction_code'])) {
+            return '/auctions/'.rawurlencode((string) $data['auction_code']);
+        }
+
+        if (isset($data['vendor_code'])) {
+            return '/vendors/'.rawurlencode((string) $data['vendor_code']);
+        }
+
+        if (str_contains(strtolower($type), 'refund') || str_contains(strtolower($type), 'emd')) {
+            return '/wallet';
+        }
+
+        return null;
     }
 
     public function outbid(Bid $previousLeader, Auction $auction, float $newAmount): void

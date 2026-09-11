@@ -226,6 +226,13 @@ class VendorController extends Controller
             app(KycStatusService::class)->transition($vendor, KycStatusService::PENDING);
             AuditLogger::write("Submitted KYC verification for {$vendor->company_name} ({$vendor->code})", 'Vendor', $vendor->code);
         });
+        app(\App\Services\NotificationService::class)->notifyAdmins(
+            'KYB_REVIEW_REQUIRED',
+            'Business verification review required',
+            "{$vendor->company_name} submitted business verification for review.",
+            ['vendor_code' => $vendor->code, 'user_id' => $vendor->user_id],
+            "vendor:{$vendor->id}:kyb-review:{$vendor->updated_at?->timestamp}",
+        );
 
         return response()->json([
             'success' => true,
@@ -322,6 +329,13 @@ class VendorController extends Controller
         }
 
         $user?->update(['vendor_id' => $vendor->id]);
+        app(\App\Services\NotificationService::class)->notifyAdmins(
+            'NEW_SELLER_REGISTRATION',
+            'New seller registration',
+            "{$vendor->company_name} submitted seller details.",
+            ['vendor_code' => $vendor->code, 'user_id' => $user?->id],
+            "vendor:{$vendor->id}:registration",
+        );
 
         return (new VendorResource($vendor->load(['user', 'materials', 'documents'])))
             ->response()

@@ -15,10 +15,12 @@ use App\Http\Controllers\Api\V1\FinanceController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\FulfilmentController;
 use App\Http\Controllers\Api\V1\InspectionController;
+use App\Http\Controllers\Api\V1\IntegrationSettingsController;
 use App\Http\Controllers\Api\V1\LotController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrganizationController;
+use App\Http\Controllers\Api\V1\OtpSettingsController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\PincodeController;
 use App\Http\Controllers\Api\V1\PlatformConfigController;
@@ -49,6 +51,7 @@ Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login']);
     Route::post('admin/auth/login', [AuthController::class, 'adminLogin']);
     Route::post('auth/request-otp', [AuthController::class, 'requestOtp']);
+    Route::post('auth/resend-otp', [AuthController::class, 'resendOtp']);
     Route::post('auth/google', [AuthController::class, 'googleSignIn']);
     Route::post('auth/verify-otp', [AuthController::class, 'verifyOtp']);
 
@@ -82,6 +85,11 @@ Route::prefix('v1')->group(function () {
         Route::middleware('token.context:admin')->group(function () {
             Route::get('admin/auth/me', [AuthController::class, 'me']);
             Route::post('admin/auth/logout', [AuthController::class, 'logout']);
+            Route::get('admin/otp-settings', [OtpSettingsController::class, 'show'])->middleware('permission:otp.settings.manage');
+            Route::put('admin/otp-settings', [OtpSettingsController::class, 'update'])->middleware('permission:otp.settings.manage');
+            Route::post('admin/otp-settings/test', [OtpSettingsController::class, 'sendTest'])->middleware('permission:otp.settings.manage');
+            Route::get('admin/integration-settings', [IntegrationSettingsController::class, 'show'])->middleware('permission:platform.config.update');
+            Route::put('admin/integration-settings', [IntegrationSettingsController::class, 'update'])->middleware('permission:platform.config.update');
         });
 
         /* Business KYB — provider calls remain backend-only. */
@@ -379,6 +387,12 @@ Route::prefix('v1')->group(function () {
             Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
             Route::get('notification-preferences', [NotificationController::class, 'preferences']);
             Route::put('notification-preferences', [NotificationController::class, 'updatePreferences']);
+        });
+
+        Route::prefix('admin')->middleware('token.context:admin')->group(function () {
+            Route::get('notifications', [NotificationController::class, 'index'])->middleware('permission:notifications.view');
+            Route::post('notifications/{id}/read', [NotificationController::class, 'markRead'])->middleware('permission:notifications.view');
+            Route::post('notifications/read-all', [NotificationController::class, 'markAllRead'])->middleware('permission:notifications.view');
         });
     });
 });

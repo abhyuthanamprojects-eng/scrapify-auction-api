@@ -3,6 +3,7 @@
 namespace App\Services\Verification;
 
 use App\Contracts\BusinessVerificationProviderInterface;
+use App\Services\GeneralSettings;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -10,14 +11,19 @@ final class CashfreeSecureIdProvider implements BusinessVerificationProviderInte
 {
     private function request(string $path, array $payload): array
     {
-        if (! config('services.cashfree_secure_id.enabled') || ! config('services.cashfree_secure_id.client_id') || ! config('services.cashfree_secure_id.client_secret')) {
+        $enabled = GeneralSettings::bool('cashfree_secure_id_enabled', (bool) config('services.cashfree_secure_id.enabled'));
+        $clientId = GeneralSettings::secret('cashfree_secure_id_client_id', config('services.cashfree_secure_id.client_id'));
+        $clientSecret = GeneralSettings::secret('cashfree_secure_id_client_secret', config('services.cashfree_secure_id.client_secret'));
+        $baseUrl = GeneralSettings::string('cashfree_secure_id_base_url', (string) config('services.cashfree_secure_id.base_url'));
+        $timeout = GeneralSettings::int('cashfree_secure_id_timeout', (int) config('services.cashfree_secure_id.timeout', 30));
+        if (! $enabled || ! $clientId || ! $clientSecret) {
             throw new RuntimeException('PROVIDER_NOT_CONFIGURED');
         }
 
-        $response = Http::timeout((int) config('services.cashfree_secure_id.timeout', 30))
+        $response = Http::timeout($timeout)
             ->acceptJson()
-            ->withHeaders(['x-client-id' => config('services.cashfree_secure_id.client_id'), 'x-client-secret' => config('services.cashfree_secure_id.client_secret')])
-            ->post(rtrim(config('services.cashfree_secure_id.base_url'), '/').$path, $payload);
+            ->withHeaders(['x-client-id' => $clientId, 'x-client-secret' => $clientSecret])
+            ->post(rtrim($baseUrl, '/').$path, $payload);
 
         if ($response->failed()) throw new RuntimeException('PROVIDER_HTTP_'.$response->status());
         return $response->json() ?: [];

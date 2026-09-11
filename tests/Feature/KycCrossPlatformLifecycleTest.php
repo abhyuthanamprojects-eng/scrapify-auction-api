@@ -25,6 +25,7 @@ class KycCrossPlatformLifecycleTest extends TestCase
     public function test_full_buyer_and_seller_kyc_lifecycle_and_security_restrictions(): void
     {
         // 1. Register new buyer
+        $this->markRegistrationIdentityVerified('birla.metals@test.com', '9820098200');
         $registerRes = $this->postJson('/api/v1/auth/register', [
             'name' => 'Aditya Birla Metals Lead',
             'email' => 'birla.metals@test.com',

@@ -8,6 +8,15 @@ return [
         'firebase_credentials' => env('FIREBASE_CREDENTIALS'),
     ],
 
+    'msg91' => [
+        'auth_key' => env('MSG91_AUTH_KEY'),
+        'otp_template_id' => env('MSG91_OTP_TEMPLATE_ID'),
+        'sms_template_id' => env('MSG91_SMS_TEMPLATE_ID'),
+        'sender_id' => env('MSG91_SENDER_ID', 'YOURBR'),
+        'country_code' => env('MSG91_COUNTRY_CODE', '91'),
+        'otp_test_mode' => (bool) env('OTP_TEST_MODE', false),
+    ],
+
     'cashfree_secure_id' => [
         'enabled' => env('CASHFREE_SECURE_ID_ENABLED', false),
         'environment' => env('CASHFREE_SECURE_ID_ENV', 'sandbox'),

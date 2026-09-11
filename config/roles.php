@@ -50,7 +50,7 @@ return [
             'orders.view', 'orders.manage',
             'wallet.view_any', 'emd.manage',
             'audit.view', 'auction.result.view', 'winner.manage', 'fallback.manage', 'emd.refund', 'emd.forfeit', 'settlement.approve', 'settlement.complete',
-            'platform.config.update', 'kyb.view', 'kyb.review', 'kyb.approve', 'kyb.reject', 'kyb.retry', 'kyb.settings.manage', 'kyb.audit.view',
+            'platform.config.update', 'otp.settings.manage', 'kyb.view', 'kyb.review', 'kyb.approve', 'kyb.reject', 'kyb.retry', 'kyb.settings.manage', 'kyb.audit.view',
         ],
 
         'operations' => [

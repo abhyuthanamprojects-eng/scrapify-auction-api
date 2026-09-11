@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
-use App\Models\Otp;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Services\AuditLogger;
+use App\Services\OtpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -18,6 +18,8 @@ class AuthController extends Controller
 {
     private const PUBLIC_TOKEN_ABILITIES = ['public:web'];
     private const ADMIN_TOKEN_ABILITIES = ['admin:panel'];
+
+    public function __construct(private readonly OtpService $otpService) {}
 
     /**
      * Step 1 + 2 of the mobile signup wizard: identity plus login credentials.
@@ -40,6 +42,21 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['registration_type' => 'Registration role does not match the selected account role.']);
         }
 
+        $data['email'] = strtolower(trim($data['email']));
+        $data['phone'] = $this->otpService->normalizeIdentifier($data['phone']);
+        if (! preg_match('/^[6-9]\d{9}$/', $data['phone'])) {
+            throw ValidationException::withMessages(['phone' => 'Enter a valid Indian mobile number.']);
+        }
+        if (User::where('phone', $data['phone'])->exists()) {
+            throw ValidationException::withMessages(['phone' => 'This mobile number is already registered.']);
+        }
+        if (! $this->otpService->hasRecentVerification($data['email'], 'email', 'register')) {
+            throw ValidationException::withMessages(['email' => 'Verify your email OTP before creating your account.']);
+        }
+        if (! $this->otpService->hasRecentVerification($data['phone'], 'sms', 'register')) {
+            throw ValidationException::withMessages(['phone' => 'Verify your mobile OTP before creating your account.']);
+        }
+
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
@@ -47,6 +64,8 @@ class AuthController extends Controller
             'password' => $data['password'],
             'role' => $role,
             'status' => 'active',
+            'email_verified_at' => now(),
+            'phone_verified_at' => now(),
         ]);
 
         // Buyers and sellers both trade as a vendor company on this platform.
@@ -62,7 +81,14 @@ class AuthController extends Controller
 
         $user->update(['vendor_id' => $vendor->id]);
 
-        AuditLogger::write("Registered user {$user->email}", 'User', $user->uuid);
+        AuditLogger::write('Registered public user', 'User', $user->uuid, ['role' => $role]);
+        app(\App\Services\NotificationService::class)->notifyAdmins(
+            'NEW_USER_REGISTRATION',
+            $role === 'seller' ? 'New seller registration' : 'New buyer registration',
+            "{$user->name} submitted a {$role} account registration.",
+            ['user_id' => $user->id, 'vendor_id' => $vendor->id, 'role' => $role],
+            "user:{$user->id}:registration",
+        );
 
         return response()->json([
             'user' => new UserResource($user->load('vendor')),
@@ -79,8 +105,9 @@ class AuthController extends Controller
             'login_context' => ['sometimes', Rule::in(['buyer', 'seller', 'BUYER', 'SELLER'])],
         ]);
 
-        $user = User::where('email', $data['identifier'])
-            ->orWhere('phone', $data['identifier'])
+        $identifier = $this->normalizeLookupIdentifier($data['identifier']);
+        $user = User::where('email', $identifier)
+            ->orWhere('phone', $identifier)
             ->first();
 
         if (! $user || ! Hash::check($data['password'], $user->password)) {
@@ -143,8 +170,9 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        $user = User::where('email', $data['identifier'])
-            ->orWhere('phone', $data['identifier'])
+        $identifier = $this->normalizeLookupIdentifier($data['identifier']);
+        $user = User::where('email', $identifier)
+            ->orWhere('phone', $identifier)
             ->first();
 
         if (! $user || ! Hash::check($data['password'], $user->password)) {
@@ -212,7 +240,12 @@ class AuthController extends Controller
             ]);
         }
 
-        $user = User::where('email', $email)->first();
+        $phone = filled($data['phone'] ?? null) ? $this->otpService->normalizeIdentifier($data['phone']) : null;
+        if ($phone !== null && ! preg_match('/^[6-9]\d{9}$/', $phone)) {
+            throw ValidationException::withMessages(['phone' => 'Enter a valid Indian mobile number.']);
+        }
+
+        $user = User::where('email', strtolower($email))->first();
 
         if ($user) {
             if (! $user->isPublicUser()) {
@@ -222,18 +255,40 @@ class AuthController extends Controller
                 );
             }
 
+            if ($phone !== null && $phone !== $user->phone) {
+                if (User::where('phone', $phone)->where('id', '<>', $user->id)->exists()) {
+                    throw ValidationException::withMessages(['phone' => 'This mobile number is already registered.']);
+                }
+                if (! $this->otpService->hasRecentVerification($phone, 'sms', 'register')) {
+                    throw ValidationException::withMessages(['phone' => 'Verify your mobile OTP before changing this number.']);
+                }
+            }
+
             $user->update([
                 'email_verified_at' => $user->email_verified_at ?? now(),
+                'phone' => $phone ?? $user->phone,
+                'phone_verified_at' => $phone !== null && $phone !== $user->phone ? now() : $user->phone_verified_at,
                 'last_login_at' => now(),
             ]);
+            if ($phone !== null && $user->vendor) {
+                $user->vendor->update(['phone' => $phone]);
+            }
         } else {
+            if (! $phone) {
+                throw ValidationException::withMessages(['phone' => 'Verify your mobile number before completing Google registration.']);
+            }
+            if (! $this->otpService->hasRecentVerification($phone, 'sms', 'register')) {
+                throw ValidationException::withMessages(['phone' => 'Verify your mobile OTP before completing Google registration.']);
+            }
+
             $user = User::create([
                 'name' => $name,
-                'email' => $email,
-                'phone' => $data['phone'] ?? null,
+                'email' => strtolower($email),
+                'phone' => $phone,
                 'password' => Hash::make(bin2hex(random_bytes(16))),
                 'role' => $data['role'] ?? 'buyer',
                 'email_verified_at' => now(),
+                'phone_verified_at' => now(),
                 'google_id' => $payload['sub'],
             ]);
 
@@ -242,14 +297,14 @@ class AuthController extends Controller
                 'company_name' => $name,
                 'contact_name' => $name,
                 'email' => $email,
-                'phone' => $data['phone'] ?? null,
+                'phone' => $phone,
                 'status' => 'pending',
                 'registration_step' => 2,
             ]);
 
             $user->update(['vendor_id' => $vendor->id]);
 
-            AuditLogger::write("Google sign-up: {$email}", 'User', $user->uuid);
+            AuditLogger::write('Registered public user through Google', 'User', $user->uuid, ['role' => $user->role]);
         }
 
         // Single session: revoke all previous tokens
@@ -258,13 +313,13 @@ class AuthController extends Controller
         return response()->json([
             'user' => new UserResource($user->load(['vendor', 'organization'])),
             'token' => $this->issueToken($user, 'public-web')->plainTextToken,
-            'is_new' => ! $user->wasRecentlyCreated ? false : true,
+            'is_new' => $user->wasRecentlyCreated,
         ]);
     }
 
     private function verifyGoogleIdToken(string $idToken): ?array
     {
-        $projectId = config('services.google.firebase_project_id');
+        $projectId = \App\Services\GeneralSettings::string('firebase_project_id', (string) config('services.google.firebase_project_id'));
 
         try {
             // Decode the JWT payload without signature verification first
@@ -275,6 +330,10 @@ class AuthController extends Controller
 
             $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
             if (! $payload) {
+                return null;
+            }
+            $header = json_decode(base64_decode(strtr($parts[0], '-_', '+/')), true);
+            if (($header['alg'] ?? null) !== 'RS256' || ! filled($payload['sub'] ?? null)) {
                 return null;
             }
 
@@ -304,7 +363,6 @@ class AuthController extends Controller
             }
 
             $keys = $keysResponse->json();
-            $header = json_decode(base64_decode(strtr($parts[0], '-_', '+/')), true);
             $kid = $header['kid'] ?? '';
 
             if (! isset($keys[$kid])) {
@@ -347,29 +405,47 @@ class AuthController extends Controller
         }
     }
 
-    /**
-     * Request an OTP. In local dev the code is returned in the response so the
-     * mobile and web clients can be exercised without an SMS provider.
-     */
     public function requestOtp(Request $request): JsonResponse
     {
         $data = $request->validate([
             'identifier' => ['required', 'string'],
-            'purpose' => ['sometimes', Rule::in(['login', 'register', 'verify'])],
+            'purpose' => ['required', Rule::in(['login', 'register', 'verify'])],
         ]);
 
-        $otp = Otp::create([
-            'identifier' => $data['identifier'],
-            'channel' => filter_var($data['identifier'], FILTER_VALIDATE_EMAIL) ? 'email' : 'sms',
-            'purpose' => $data['purpose'] ?? 'login',
-            'code' => (string) random_int(100000, 999999),
-            'expires_at' => now()->addMinutes(10),
-        ]);
+        $identifier = $this->normalizeOtpIdentifier($data['identifier']);
+        $result = $this->otpService->request($identifier, $data['purpose']);
+        if (! $result['success']) {
+            return $this->otpFailure($result);
+        }
 
         return response()->json([
             'message' => 'OTP sent.',
-            'expires_at' => $otp->expires_at->toIso8601String(),
-            'debug_code' => app()->environment('local') ? $otp->code : null,
+            'channel' => $this->otpService->channel($identifier),
+            'destination' => $this->maskDestination($identifier),
+            'expires_at' => $result['expires_at'],
+            'resend_after' => $result['resend_after'],
+        ]);
+    }
+
+    public function resendOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'identifier' => ['required', 'string'],
+            'purpose' => ['required', Rule::in(['login', 'register', 'verify'])],
+        ]);
+
+        $identifier = $this->normalizeOtpIdentifier($data['identifier']);
+        $result = $this->otpService->resend($identifier, $data['purpose']);
+        if (! $result['success']) {
+            return $this->otpFailure($result);
+        }
+
+        return response()->json([
+            'message' => 'OTP resent.',
+            'channel' => $this->otpService->channel($identifier),
+            'destination' => $this->maskDestination($identifier),
+            'expires_at' => $result['expires_at'],
+            'resend_after' => $result['resend_after'],
         ]);
     }
 
@@ -377,27 +453,25 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'identifier' => ['required', 'string'],
-            'code' => ['required', 'string'],
+            'code' => ['required', 'digits:6'],
+            'purpose' => ['required', Rule::in(['login', 'register', 'verify'])],
         ]);
 
-        $otp = Otp::where('identifier', $data['identifier'])
-            ->where('code', $data['code'])
-            ->latest('id')
-            ->first();
-
-        if (! $otp || ! $otp->isUsable()) {
+        $identifier = $this->normalizeOtpIdentifier($data['identifier']);
+        if (! $this->otpService->verify($identifier, $data['purpose'], $data['code'])) {
             throw ValidationException::withMessages(['code' => 'This OTP is invalid or has expired.']);
         }
 
-        $otp->update(['consumed_at' => now()]);
-
-        $user = User::where('email', $data['identifier'])
-            ->orWhere('phone', $data['identifier'])
+        $user = User::where('email', $identifier)
+            ->orWhere('phone', $identifier)
             ->first();
 
-        if (! $user) {
-            // Verification during signup, before the account exists.
+        if ($data['purpose'] === 'register') {
             return response()->json(['verified' => true, 'user' => null, 'token' => null]);
+        }
+
+        if (! $user) {
+            throw ValidationException::withMessages(['identifier' => 'No account exists for this identifier.']);
         }
 
         if (! $user->isPublicUser()) {
@@ -408,8 +482,8 @@ class AuthController extends Controller
         }
 
         $user->forceFill([
-            'phone_verified_at' => $otp->channel === 'sms' ? now() : $user->phone_verified_at,
-            'email_verified_at' => $otp->channel === 'email' ? now() : $user->email_verified_at,
+            'phone_verified_at' => $this->otpService->channel($identifier) === 'sms' ? now() : $user->phone_verified_at,
+            'email_verified_at' => $this->otpService->channel($identifier) === 'email' ? now() : $user->email_verified_at,
             'last_login_at' => now(),
         ])->save();
 
@@ -452,5 +526,42 @@ class AuthController extends Controller
             'message' => $message,
             'error' => ['code' => $code],
         ], 403);
+    }
+
+    private function normalizeLookupIdentifier(string $identifier): string
+    {
+        return $this->otpService->normalizeIdentifier($identifier);
+    }
+
+    private function normalizeOtpIdentifier(string $identifier): string
+    {
+        $normalized = $this->otpService->normalizeIdentifier($identifier);
+        if ($this->otpService->channel($normalized) === 'email') {
+            validator(['identifier' => $normalized], ['identifier' => ['email']])->validate();
+        } elseif (! preg_match('/^[6-9]\d{9}$/', $normalized)) {
+            throw ValidationException::withMessages(['identifier' => 'Enter a valid email address or Indian mobile number.']);
+        }
+
+        return $normalized;
+    }
+
+    private function maskDestination(string $identifier): string
+    {
+        if ($this->otpService->channel($identifier) === 'email') {
+            [$name, $domain] = explode('@', $identifier, 2);
+            return substr($name, 0, 2) . str_repeat('*', max(2, strlen($name) - 2)) . '@' . $domain;
+        }
+
+        return str_repeat('*', max(0, strlen($identifier) - 4)) . substr($identifier, -4);
+    }
+
+    private function otpFailure(array $result): JsonResponse
+    {
+        $status = in_array($result['code'] ?? null, ['OTP_PROVIDER_UNAVAILABLE', 'EMAIL_PROVIDER_UNAVAILABLE'], true) ? 503 : 422;
+
+        return response()->json([
+            'message' => $result['message'],
+            'error' => ['code' => $result['code'] ?? 'OTP_REQUEST_FAILED'],
+        ], $status);
     }
 }

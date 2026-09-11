@@ -41,6 +41,14 @@ class PlatformConfigController extends Controller
             'kyb_allow_admin_override' => GeneralSettings::bool('kyb_allow_admin_override', true),
             'cashfree_secure_id_environment' => config('services.cashfree_secure_id.environment'),
             'cashfree_secure_id_enabled' => (bool) config('services.cashfree_secure_id.enabled'),
+            'firebase' => [
+                'apiKey' => GeneralSettings::string('firebase_api_key', ''),
+                'authDomain' => GeneralSettings::string('firebase_auth_domain', ''),
+                'projectId' => GeneralSettings::string('firebase_project_id', (string) config('services.google.firebase_project_id', '')),
+                'storageBucket' => GeneralSettings::string('firebase_storage_bucket', ''),
+                'messagingSenderId' => GeneralSettings::string('firebase_messaging_sender_id', ''),
+                'appId' => GeneralSettings::string('firebase_app_id', ''),
+            ],
         ]);
     }
 

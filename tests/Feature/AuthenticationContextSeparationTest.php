@@ -132,6 +132,7 @@ class AuthenticationContextSeparationTest extends TestCase
 
     public function test_registration_persists_the_selected_public_role_and_rejects_admin(): void
     {
+        $this->markRegistrationIdentityVerified('qa-seller@example.com', '9000000001');
         $this->postJson('/api/v1/auth/register', [
             'name' => 'QA Seller', 'email' => 'qa-seller@example.com', 'phone' => '9000000001',
             'password' => 'StrongPass_1234', 'registration_type' => 'SELLER',

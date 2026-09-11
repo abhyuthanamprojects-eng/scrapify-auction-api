@@ -28,6 +28,7 @@ class FullPlatformEndToEndFlowTest extends TestCase
     public function test_complete_buyer_and_seller_registration_and_admin_verification_flow(): void
     {
         // 1. Buyer Registration
+        $this->markRegistrationIdentityVerified('rahul@apexinfra.com', '+91 9988771122');
         $buyerRegResponse = $this->postJson('/api/v1/auth/register', [
             'name' => 'Rahul Singhania',
             'email' => 'rahul@apexinfra.com',
@@ -79,6 +80,7 @@ class FullPlatformEndToEndFlowTest extends TestCase
         $docId = $buyerDocResponse->json('document.id');
 
         // 4. Seller Registration
+        $this->markRegistrationIdentityVerified('head@tatarecycling.com', '+91 9988772233');
         $sellerRegResponse = $this->postJson('/api/v1/auth/register', [
             'name' => 'Tata Recycling Head',
             'email' => 'head@tatarecycling.com',

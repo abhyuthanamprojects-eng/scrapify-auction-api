@@ -35,8 +35,8 @@ class BusinessVerificationTest extends TestCase
     public function test_gstin_and_bank_are_provider_backed_normalized_and_idempotent(): void
     {
         Http::fake([
-            'sandbox.cashfree.com/verification/gstin' => Http::response(['reference_id' => 11, 'GSTIN' => '29AAICP2912R1ZR', 'legal_name_of_business' => 'ACME TECHNOLOGIES PRIVATE LIMITED', 'trade_name_of_business' => 'ACME', 'gst_in_status' => 'Active', 'valid' => true], 200),
-            'sandbox.cashfree.com/verification/bank-account/sync' => Http::response(['reference_id' => 22, 'account_status' => 'VALID', 'name_at_bank' => 'ACME TECHNOLOGIES PVT LTD', 'bank_name' => 'YES BANK', 'branch' => 'CENTRAL', 'city' => 'MUMBAI', 'name_match_score' => '90.00', 'name_match_result' => 'GOOD_PARTIAL_MATCH'], 200),
+            '*sandbox.cashfree.com/verification/gstin*' => Http::response(['reference_id' => 11, 'GSTIN' => '29AAICP2912R1ZR', 'legal_name_of_business' => 'ACME TECHNOLOGIES PRIVATE LIMITED', 'trade_name_of_business' => 'ACME', 'gst_in_status' => 'Active', 'valid' => true], 200),
+            '*sandbox.cashfree.com/verification/bank-account/sync*' => Http::response(['reference_id' => 22, 'account_status' => 'VALID', 'name_at_bank' => 'ACME TECHNOLOGIES PVT LTD', 'bank_name' => 'YES BANK', 'branch' => 'CENTRAL', 'city' => 'MUMBAI', 'name_match_score' => '90.00', 'name_match_result' => 'GOOD_PARTIAL_MATCH'], 200),
         ]);
         $user = $this->user();
         Sanctum::actingAs($user);
@@ -53,7 +53,7 @@ class BusinessVerificationTest extends TestCase
 
     public function test_moderate_match_requires_review_and_provider_outage_is_not_rejection(): void
     {
-        Http::fake(['sandbox.cashfree.com/verification/gstin' => Http::response(['reference_id' => 31, 'GSTIN' => '29AAICP2912R1ZR', 'gst_in_status' => 'Active', 'valid' => true]), 'sandbox.cashfree.com/verification/bank-account/sync' => Http::response(['reference_id' => 32, 'account_status' => 'VALID', 'name_at_bank' => 'DIFFERENT NAME', 'name_match_score' => '70', 'name_match_result' => 'MODERATE_MATCH'])]);
+        Http::fake(['*sandbox.cashfree.com/verification/gstin*' => Http::response(['reference_id' => 31, 'GSTIN' => '29AAICP2912R1ZR', 'gst_in_status' => 'Active', 'valid' => true]), '*sandbox.cashfree.com/verification/bank-account/sync*' => Http::response(['reference_id' => 32, 'account_status' => 'VALID', 'name_at_bank' => 'DIFFERENT NAME', 'name_match_score' => '70', 'name_match_result' => 'MODERATE_MATCH'])]);
         $user = $this->user(); Sanctum::actingAs($user);
         $this->postJson('/api/v1/kyb/gstin/verify', ['gstin' => '29AAICP2912R1ZR'])->assertOk();
         $this->postJson('/api/v1/kyb/bank/verify', ['bank_account' => '26291800001191', 'bank_account_confirmation' => '26291800001191', 'ifsc' => 'YESB0000001'])->assertOk()->assertJsonPath('data.overall_kyb_status', 'REVIEW_REQUIRED');
