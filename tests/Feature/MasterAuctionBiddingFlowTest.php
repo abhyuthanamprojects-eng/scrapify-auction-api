@@ -395,7 +395,7 @@ class MasterAuctionBiddingFlowTest extends TestCase
         $this->assertEquals(30000, (float) $lot2->final_price);
     }
 
-    public function test_anti_sniping_auto_extension(): void
+    public function test_late_bid_does_not_extend_the_current_slot(): void
     {
         Sanctum::actingAs($this->sellerUser);
         $res = $this->postJson('/api/v1/auctions', [
@@ -419,8 +419,9 @@ class MasterAuctionBiddingFlowTest extends TestCase
         $this->postJson("/api/v1/auctions/{$code}/bids", ['amount' => 10000])->assertStatus(201);
 
         $auction->refresh();
-        // Schedule end must be extended by 3 minutes
-        $this->assertTrue($auction->schedule_end->greaterThan($originalEnd));
+        // Same-slot anti-sniping extension is intentionally disabled. The
+        // controller may start a new continuation slot instead.
+        $this->assertTrue($auction->schedule_end->equalTo($originalEnd));
     }
 
     public function test_insufficient_wallet_balance_blocks_emd_and_bid(): void

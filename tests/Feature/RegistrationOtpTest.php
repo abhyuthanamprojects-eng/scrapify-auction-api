@@ -69,6 +69,68 @@ class RegistrationOtpTest extends TestCase
         $this->assertDatabaseCount('users', 0);
     }
 
+    public function test_vendor_registration_rejects_invalid_identity_and_location_formats(): void
+    {
+        $user = User::factory()->create(['role' => 'seller', 'status' => 'active']);
+        Sanctum::actingAs($user, ['public:web']);
+
+        $response = $this->postJson('/api/v1/vendors/register', [
+            'company_name' => 'Invalid Format Co',
+            'contact_name' => 'Test Contact',
+            'email' => 'not-an-email',
+            'phone' => '12345',
+            'gst_number' => 'INVALID-GSTIN',
+            'pan_number' => 'INVALID-PAN',
+            'warehouse_details' => [
+                'name' => 'Main Yard',
+                'address' => 'Industrial Area',
+                'city' => 'Mumbai',
+                'state' => 'Maharashtra',
+                'pincode' => '00012',
+                'contact_phone' => '12345',
+            ],
+        ]);
+
+        $response->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'email',
+                'phone',
+                'gst_number',
+                'pan_number',
+                'warehouse_details.pincode',
+                'warehouse_details.contact_phone',
+            ]);
+    }
+
+    public function test_vendor_registration_rejects_city_and_state_that_do_not_match_the_pin_service(): void
+    {
+        Http::fake([
+            'https://api.postalpincode.in/pincode/400030' => Http::response([[
+                'Status' => 'Success',
+                'PostOffice' => [[
+                    'District' => 'Mumbai',
+                    'State' => 'Maharashtra',
+                    'Country' => 'India',
+                ]],
+            ]], 200),
+        ]);
+
+        $user = User::factory()->create(['role' => 'seller', 'status' => 'active']);
+        Sanctum::actingAs($user, ['public:web']);
+
+        $response = $this->postJson('/api/v1/vendors/register', [
+            'company_name' => 'Location Check Co',
+            'contact_name' => 'Test Contact',
+            'email' => 'location@example.com',
+            'phone' => '9876543210',
+            'pincode' => '400030',
+            'city' => 'Jaipur',
+            'state' => 'Rajasthan',
+        ]);
+
+        $response->assertUnprocessable()->assertJsonValidationErrors(['city', 'state']);
+    }
+
     public function test_registration_otp_purpose_cannot_be_replayed_as_login(): void
     {
         config([

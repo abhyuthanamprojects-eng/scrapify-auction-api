@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Rules\IndianMobileNumber;
 use App\Models\BusinessVerification;
 use App\Services\BusinessVerificationService;
 use Illuminate\Http\JsonResponse;
@@ -30,7 +31,7 @@ class BusinessVerificationController extends Controller
 
     public function verifyBank(Request $request, BusinessVerificationService $service): JsonResponse
     {
-        $data = $request->validate(['bank_account' => ['required', 'string', 'min:6', 'max:40'], 'bank_account_confirmation' => ['required', 'same:bank_account'], 'ifsc' => ['required', 'string', 'size:11'], 'name' => ['nullable', 'string', 'max:120'], 'phone' => ['nullable', 'digits_between:8,13']]);
+        $data = $request->validate(['bank_account' => ['required', 'string', 'min:6', 'max:40', 'regex:/^\d+$/'], 'bank_account_confirmation' => ['required', 'same:bank_account'], 'ifsc' => ['required', 'string', 'size:11', 'regex:/^[A-Z]{4}0[A-Z0-9]{6}$/i'], 'name' => ['nullable', 'string', 'max:120'], 'phone' => ['nullable', 'string', 'max:20', new IndianMobileNumber()]]);
         return response()->json(['success' => true, 'data' => $service->present($service->verifyBank($request->user(), $data['bank_account'], $data['ifsc'], $data['name'] ?? null, $data['phone'] ?? null))]);
     }
 

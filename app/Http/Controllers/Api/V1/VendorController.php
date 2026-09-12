@@ -9,12 +9,17 @@ use App\Models\Payment;
 use App\Models\Vendor;
 use App\Models\VendorDocument;
 use App\Models\VendorInvitation;
+use App\Rules\Gstin;
+use App\Rules\IndianMobileNumber;
+use App\Rules\IndianPincode;
+use App\Rules\PanNumber;
 use App\Services\AuditLogger;
 use App\Services\Verification\BankVerificationService;
 use App\Services\Verification\GSTVerificationService;
 use App\Services\Verification\KycStatusService;
 use App\Services\Verification\PANVerificationService;
 use App\Services\WalletService;
+use App\Services\PincodeLookupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -98,15 +103,23 @@ class VendorController extends Controller
             'address_line1' => ['sometimes', 'nullable', 'string', 'max:255'],
             'city' => ['sometimes', 'nullable', 'string', 'max:100'],
             'state' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'pincode' => ['sometimes', 'nullable', 'string', 'max:10'],
+            'pincode' => ['sometimes', 'nullable', 'string', 'size:6', new IndianPincode()],
             'operating_states' => ['sometimes', 'array'],
+            'warehouse_details' => ['sometimes', 'nullable', 'array'],
+            'warehouse_details.name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'warehouse_details.address' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'warehouse_details.city' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'warehouse_details.state' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'warehouse_details.pincode' => ['sometimes', 'nullable', 'string', 'size:6', new IndianPincode()],
+            'warehouse_details.contact_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'warehouse_details.contact_phone' => ['sometimes', 'nullable', 'string', 'max:20', new IndianMobileNumber()],
 
             'contact_name' => ['sometimes', 'nullable', 'string', 'max:120'],
             'email' => ['sometimes', 'nullable', 'email'],
-            'phone' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'phone' => ['sometimes', 'nullable', 'string', 'max:20', new IndianMobileNumber()],
 
-            'gst_number' => ['sometimes', 'nullable', 'string', 'max:20'],
-            'pan_number' => ['sometimes', 'nullable', 'string', 'max:15'],
+            'gst_number' => ['sometimes', 'nullable', 'string', 'size:15', new Gstin()],
+            'pan_number' => ['sometimes', 'nullable', 'string', 'size:10', new PanNumber()],
             'license_number' => ['sometimes', 'nullable', 'string', 'max:60'],
 
             'bank_name' => ['sometimes', 'nullable', 'string', 'max:100'],
@@ -119,12 +132,14 @@ class VendorController extends Controller
             'signatory_name' => ['sometimes', 'nullable', 'string', 'max:120'],
             'signatory_designation' => ['sometimes', 'nullable', 'string', 'max:80'],
             'signatory_email' => ['sometimes', 'nullable', 'email'],
-            'signatory_phone' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'signatory_phone' => ['sometimes', 'nullable', 'string', 'max:20', new IndianMobileNumber()],
 
             'material_interest' => ['sometimes', 'array'],
             'material_interest.*' => ['string'],
             'terms_accepted' => ['sometimes', 'boolean'],
         ]);
+        $data = $this->normalizeVendorData($data);
+        $this->validatePincodeLocations($data);
 
         $user = $request->user();
         $vendor = $user?->vendor ?? new Vendor(['user_id' => $user?->id]);
@@ -197,6 +212,23 @@ class VendorController extends Controller
         if (empty($vendor->email) || empty($vendor->phone)) {
             throw ValidationException::withMessages(['contact' => 'Official email and mobile number are required.']);
         }
+        if ($vendor->user?->role === 'seller') {
+            $warehouse = $vendor->warehouse_details ?? [];
+            foreach (['name', 'address', 'city', 'state', 'pincode'] as $field) {
+                if (blank($warehouse[$field] ?? null)) {
+                    throw ValidationException::withMessages([
+                        "warehouse_details.{$field}" => 'Seller warehouse details are required before submission.',
+                    ]);
+                }
+            }
+        }
+
+        $this->validatePincodeLocations([
+            'pincode' => $vendor->pincode,
+            'city' => $vendor->city,
+            'state' => $vendor->state,
+            'warehouse_details' => $vendor->warehouse_details,
+        ]);
 
         // Run validation services
         if (!empty($vendor->gst_number)) {
@@ -300,16 +332,35 @@ class VendorController extends Controller
             'company_name' => ['required', 'string', 'max:180'],
             'location' => ['sometimes', 'nullable', 'string', 'max:180'],
             'address' => ['sometimes', 'nullable', 'string'],
+            'city' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'state' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'pincode' => ['sometimes', 'nullable', 'string', 'size:6', new IndianPincode()],
             'contact_name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email'],
-            'phone' => ['required', 'string', 'max:20'],
-            'gst_number' => ['sometimes', 'nullable', 'string', 'max:20'],
-            'pan_number' => ['sometimes', 'nullable', 'string', 'max:15'],
+            'phone' => ['required', 'string', 'max:20', new IndianMobileNumber()],
+            'gst_number' => ['sometimes', 'nullable', 'string', 'size:15', new Gstin()],
+            'pan_number' => ['sometimes', 'nullable', 'string', 'size:10', new PanNumber()],
             'license_number' => ['sometimes', 'nullable', 'string', 'max:60'],
+            'bank_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'account_number' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'ifsc_code' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'account_holder_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'branch_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'account_type' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'warehouse_details' => ['sometimes', 'nullable', 'array'],
+            'warehouse_details.name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'warehouse_details.address' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'warehouse_details.city' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'warehouse_details.state' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'warehouse_details.pincode' => ['sometimes', 'nullable', 'string', 'size:6', new IndianPincode()],
+            'warehouse_details.contact_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'warehouse_details.contact_phone' => ['sometimes', 'nullable', 'string', 'max:20', new IndianMobileNumber()],
             'material_interest' => ['sometimes', 'array'],
             'material_interest.*' => ['string'],
             'terms_accepted' => ['sometimes', 'boolean'],
         ]);
+        $data = $this->normalizeVendorData($data);
+        $this->validatePincodeLocations($data);
 
         $user = $request->user();
 
@@ -346,11 +397,17 @@ class VendorController extends Controller
     {
         $data = $request->validate([
             'email' => ['required_without:phone', 'nullable', 'email'],
-            'phone' => ['required_without:email', 'nullable', 'string', 'max:20'],
+            'phone' => ['required_without:email', 'nullable', 'string', 'max:20', new IndianMobileNumber()],
             'company_name' => ['sometimes', 'nullable', 'string', 'max:180'],
             'auction_code' => ['sometimes', 'nullable', 'string', 'exists:auctions,code'],
             'message' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ]);
+        $data['email'] = array_key_exists('email', $data) && $data['email'] !== null
+            ? strtolower(trim($data['email']))
+            : null;
+        if (array_key_exists('phone', $data) && $data['phone'] !== null) {
+            $data['phone'] = $this->normalizeIndianMobile((string) $data['phone']);
+        }
 
         $auctionId = null;
         if ($auctionCode = ($data['auction_code'] ?? null)) {
@@ -590,14 +647,32 @@ class VendorController extends Controller
             'location' => ['sometimes', 'nullable', 'string', 'max:180'],
             'contact_name' => ['sometimes', 'string', 'max:120'],
             'email' => ['sometimes', 'email'],
-            'phone' => ['sometimes', 'string', 'max:20'],
-            'gst_number' => ['sometimes', 'nullable', 'string', 'max:20'],
-            'pan_number' => ['sometimes', 'nullable', 'string', 'max:15'],
+            'phone' => ['sometimes', 'string', 'max:20', new IndianMobileNumber()],
+            'gst_number' => ['sometimes', 'nullable', 'string', 'size:15', new Gstin()],
+            'pan_number' => ['sometimes', 'nullable', 'string', 'size:10', new PanNumber()],
             'license_number' => ['sometimes', 'nullable', 'string', 'max:60'],
+            'pincode' => ['sometimes', 'nullable', 'string', 'size:6', new IndianPincode()],
+            'city' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'state' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'warehouse_details' => ['sometimes', 'nullable', 'array'],
+            'warehouse_details.name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'warehouse_details.address' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'warehouse_details.city' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'warehouse_details.state' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'warehouse_details.pincode' => ['sometimes', 'nullable', 'string', 'size:6', new IndianPincode()],
+            'warehouse_details.contact_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'warehouse_details.contact_phone' => ['sometimes', 'nullable', 'string', 'max:20', new IndianMobileNumber()],
             'material_interest' => ['sometimes', 'array'],
         ]);
+        $data = $this->normalizeVendorData($data);
 
         $vendor = Vendor::where('code', $code)->firstOrFail();
+        $this->validatePincodeLocations(array_replace_recursive([
+            'pincode' => $vendor->pincode,
+            'city' => $vendor->city,
+            'state' => $vendor->state,
+            'warehouse_details' => $vendor->warehouse_details,
+        ], $data));
         $vendor->update(collect($data)->except('material_interest')->all());
 
         if (array_key_exists('material_interest', $data)) {
@@ -605,6 +680,83 @@ class VendorController extends Controller
         }
 
         return new VendorResource($vendor->fresh(['user', 'materials', 'documents']));
+    }
+
+    private function normalizeVendorData(array $data): array
+    {
+        foreach (['email', 'signatory_email'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] !== null) {
+                $data[$field] = strtolower(trim((string) $data[$field]));
+            }
+        }
+
+        foreach (['gst_number', 'pan_number', 'ifsc_code'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] !== null) {
+                $data[$field] = strtoupper(trim((string) $data[$field]));
+            }
+        }
+
+        foreach (['phone', 'signatory_phone'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] !== null) {
+                $data[$field] = $this->normalizeIndianMobile((string) $data[$field]);
+            }
+        }
+
+        if (isset($data['warehouse_details']) && is_array($data['warehouse_details'])) {
+            foreach (['pincode'] as $field) {
+                if (array_key_exists($field, $data['warehouse_details']) && $data['warehouse_details'][$field] !== null) {
+                    $data['warehouse_details'][$field] = trim((string) $data['warehouse_details'][$field]);
+                }
+            }
+            if (array_key_exists('contact_phone', $data['warehouse_details']) && $data['warehouse_details']['contact_phone'] !== null) {
+                $data['warehouse_details']['contact_phone'] = $this->normalizeIndianMobile((string) $data['warehouse_details']['contact_phone']);
+            }
+        }
+
+        if (array_key_exists('pincode', $data) && $data['pincode'] !== null) {
+            $data['pincode'] = trim((string) $data['pincode']);
+        }
+
+        return $data;
+    }
+
+    private function normalizeIndianMobile(string $phone): string
+    {
+        $digits = preg_replace('/\D+/', '', trim($phone)) ?? '';
+        return str_starts_with($digits, '91') && strlen($digits) === 12 ? substr($digits, 2) : $digits;
+    }
+
+    private function validatePincodeLocations(array $data): void
+    {
+        $service = app(PincodeLookupService::class);
+        $errors = [];
+
+        $check = function (string $prefix, ?string $pincode, ?string $city, ?string $state) use ($service, &$errors): void {
+            if (blank($pincode) || (blank($city) && blank($state))) {
+                return;
+            }
+
+            if (blank($city) || blank($state)) {
+                $errors["{$prefix}city"] = 'City and state are required when a PIN code is provided.';
+                return;
+            }
+
+            if (! $service->matches((string) $pincode, $city, $state)) {
+                $errors["{$prefix}city"] = 'City does not match the selected PIN code.';
+                $errors["{$prefix}state"] = 'State does not match the selected PIN code.';
+            }
+        };
+
+        $check('', $data['pincode'] ?? null, $data['city'] ?? null, $data['state'] ?? null);
+
+        $warehouse = $data['warehouse_details'] ?? null;
+        if (is_array($warehouse)) {
+            $check('warehouse_details.', $warehouse['pincode'] ?? null, $warehouse['city'] ?? null, $warehouse['state'] ?? null);
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
     }
 
     private function categoryIds(array $names): array

@@ -44,8 +44,6 @@ class BidPlaced implements ShouldBroadcast
                 'id' => $this->bid->id,
                 'auction_code' => $auction->code,
                 'lot_code' => $this->bid->lot?->code,
-                'vendor_id' => $this->bid->vendor_id,
-                'vendor_name' => $this->bid->vendor_name,
                 'amount' => (float) $this->bid->amount,
                 'is_proxy' => $this->bid->is_proxy,
                 'at' => $this->bid->created_at->toIso8601String(),
@@ -54,8 +52,11 @@ class BidPlaced implements ShouldBroadcast
                 'code' => $auction->code,
                 'direction' => $auction->direction,
                 'current_highest' => (float) $auction->current_highest,
+                'current_lowest' => $auction->isReverse() ? (float) $auction->current_highest : null,
+                'current_price' => (float) $auction->current_highest,
                 'bidders_count' => $auction->bidders_count,
                 'schedule_end' => $auction->schedule_end?->toIso8601String(),
+                'server_time' => now()->toIso8601String(),
             ],
         ];
     }

@@ -14,6 +14,16 @@ $view = [
     'bids.view', 'reports.view', 'tokens.view',
 ];
 
+$liveView = [
+    'auction.live.view', 'auction.live.audit', 'auction.participant.view',
+    'auction.bid.view', 'auction.integrity.view', 'auction.result.view',
+];
+
+$liveControl = [
+    'auction.live.start', 'auction.live.close_slot',
+    'auction.live.next_slot', 'auction.live.force_close',
+];
+
 return [
 
     // These role boundaries are authentication boundaries as well as
@@ -39,6 +49,7 @@ return [
 
         'admin' => [
             ...$view,
+            ...$liveView, ...$liveControl,
             'organizations.create', 'organizations.update', 'organizations.submit',
             'vendors.approve', 'vendors.reject', 'vendors.suspend', 'vendors.update',
             'auctions.create', 'auctions.update', 'auctions.submit',
@@ -55,6 +66,7 @@ return [
 
         'operations' => [
             ...$view,
+            ...$liveView, ...$liveControl,
             'organizations.create', 'organizations.update', 'organizations.submit',
             'vendors.approve', 'vendors.reject', 'vendors.suspend', 'vendors.update',
             'auctions.create', 'auctions.update', 'auctions.submit',
@@ -112,6 +124,7 @@ return [
 
         'auditor' => [
             ...$view,
+            ...$liveView,
             'audit.view', 'wallet.view_any', 'orders.view',
         ],
     ],

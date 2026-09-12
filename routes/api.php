@@ -198,15 +198,15 @@ Route::prefix('v1')->group(function () {
         Route::post('auctions/{code}/publish', [AuctionController::class, 'publish'])
             ->middleware('permission:auctions.publish');
         Route::post('auctions/{code}/go-live', [AuctionController::class, 'golive'])
-            ->middleware('permission:auctions.publish');
+            ->middleware(['token.context:admin', 'permission:auction.live.start']);
         Route::post('auctions/{code}/extend', [AuctionController::class, 'extend'])
             ->middleware('permission:auctions.extend');
         Route::post('auctions/{code}/slots/{slot}/close', [AuctionController::class, 'closeSlot'])
-            ->middleware('permission:auctions.close');
+            ->middleware(['token.context:admin', 'permission:auction.live.close_slot']);
         Route::post('auctions/{code}/slots/next', [AuctionController::class, 'createContinuationSlot'])
-            ->middleware('permission:auctions.extend');
+            ->middleware(['token.context:admin', 'permission:auction.live.next_slot']);
         Route::post('auctions/{code}/close', [AuctionController::class, 'close'])
-            ->middleware('permission:auctions.close');
+            ->middleware(['token.context:admin', 'permission:auction.live.force_close']);
         Route::get('auctions/{code}/result', [AuctionController::class, 'result']);
         Route::get('auctions/{code}/settlement', [SettlementController::class, 'show'])
             ->middleware('permission:auction.result.view');

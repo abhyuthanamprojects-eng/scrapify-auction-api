@@ -6,11 +6,11 @@ use App\Events\AuctionStateChanged;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AuctionResource;
 use App\Models\Auction;
-use App\Models\AuctionExtension;
 use App\Models\AuctionTermsAcceptance;
 use App\Models\AuctionTermsVersion;
 use App\Models\AuctionSlot;
 use App\Models\AuctionConfigSnapshot;
+use App\Models\AuditLog;
 use App\Models\RfqSubmission;
 use App\Models\RfqDiscoveryRound;
 use App\Models\RfqDiscoverySubmission;
@@ -20,11 +20,14 @@ use App\Services\AuctionReadinessService;
 use App\Models\Category;
 use App\Models\InterestedBidder;
 use App\Models\Lot;
+use App\Models\Vendor;
 use App\Services\EmdService;
 use App\Services\GeneralSettings;
 use App\Services\NotificationService;
 use App\Services\AuctionResultService;
 use App\Services\AuditLogger;
+use App\Rules\IndianMobileNumber;
+use App\Rules\IndianPincode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -140,10 +143,23 @@ class AuctionController extends Controller
             abort(403, 'Only sellers or authorized operations staff can create auctions.');
         }
 
+        // Operations staff may create an auction for an approved client. The
+        // client remains the auction owner so their workspace and permissions
+        // see the same record as if they created it themselves.
+        $owner = $user;
+        if ($isStaff && ! empty($data['client_code'])) {
+            $ownerVendor = Vendor::where('code', $data['client_code'])
+                ->where('status', 'approved')
+                ->with('user')
+                ->firstOrFail();
+            abort_unless($ownerVendor->user, 422, 'The selected client does not have a linked user account.');
+            $owner = $ownerVendor->user;
+        }
+
         $auction = Auction::create(array_merge($this->attributes($data), [
             'status' => $data['status'] ?? 'draft',
-            'submitted_by' => $user->id,
-            'submitted_by_name' => $user->name,
+            'submitted_by' => $owner->id,
+            'submitted_by_name' => $owner->name,
         ]));
 
         $this->syncLots($auction, $data['sub_lots'] ?? []);
@@ -415,7 +431,7 @@ class AuctionController extends Controller
     }
 
     /** Flip a published auction into live bidding. */
-    public function golive(string $code): AuctionResource
+    public function golive(Request $request, string $code): AuctionResource
     {
         $auction = Auction::where('code', $code)->firstOrFail();
 
@@ -447,6 +463,12 @@ class AuctionController extends Controller
             return $locked->fresh(['slots']);
         });
 
+        AuditLogger::write('AUCTION_STARTED', 'auction', (string) $auction->id, [
+            'auction_code' => $auction->code,
+            'actual_started_at' => $auction->actual_started_at?->toIso8601String(),
+            'hard_end_at' => $auction->schedule_end?->toIso8601String(),
+        ], $request->user());
+
         broadcast(new AuctionStateChanged($auction, 'live'));
 
         return new AuctionResource($auction);
@@ -466,64 +488,62 @@ class AuctionController extends Controller
 
         $auction = Auction::where('code', $code)->firstOrFail();
 
-        abort_unless($auction->status === 'live', 422, 'Only a live auction can be extended.');
-
-        $auction->update([
-            'schedule_end' => $auction->schedule_end?->addMinutes($data['minutes']) ?? now()->addMinutes($data['minutes']),
-        ]);
-
-        AuctionExtension::create([
-            'auction_id' => $auction->id,
-            'user_id' => $request->user()->id,
-            'minutes' => $data['minutes'],
-            'reason' => $data['reason'],
-        ]);
-
-        broadcast(new AuctionStateChanged($auction, 'extended'));
-
-        return new AuctionResource($auction->fresh('extensions'));
+        abort(422, 'Live auction timing is immutable. Close the current slot and start a continuation slot instead.');
     }
 
     public function closeSlot(Request $request, string $code, int $slot): JsonResponse
     {
         $data = $request->validate(['reason' => ['required', 'in:TIME_ELAPSED,NO_CONTINUATION,MAX_DURATION,ADMIN_FORCE_CLOSE,AUCTION_CANCELLED']]);
-        $auction = Auction::where('code', $code)->firstOrFail();
-        $slotModel = \DB::transaction(function () use ($auction, $slot, $data) {
+        $result = \DB::transaction(function () use ($code, $slot, $data) {
+            $auction = Auction::where('code', $code)->lockForUpdate()->firstOrFail();
+            abort_unless($auction->status === 'live', 422, 'Only a live auction slot can be closed.');
             $slotModel = $auction->slots()->whereKey($slot)->lockForUpdate()->firstOrFail();
-            if ($slotModel->status === 'closed') return $slotModel;
+            abort_unless($slotModel->status === 'active', 422, 'This auction slot is already closed.');
             $slotModel->update(['status' => 'closed', 'closed_at' => now(), 'close_reason' => $data['reason']]);
-            return $slotModel->fresh();
+            return [$auction->fresh(['slots']), $slotModel->fresh()];
         });
-        broadcast(new AuctionStateChanged($auction->fresh(), 'slot_closed'));
-        return response()->json(['slot' => $slotModel, 'auction' => new AuctionResource($auction->fresh(['slots']))]);
+        [$auction, $slotModel] = $result;
+        AuditLogger::write('SLOT_CLOSED', 'auction_slot', (string) $slotModel->id, [
+            'auction_id' => $auction->id, 'auction_code' => $auction->code,
+            'reason' => $data['reason'],
+        ], $request->user());
+        broadcast(new AuctionStateChanged($auction, 'slot_closed'));
+        return response()->json(['slot' => $slotModel, 'auction' => new AuctionResource($auction)]);
     }
 
     public function createContinuationSlot(Request $request, string $code): JsonResponse
     {
-        $auction = Auction::where('code', $code)->lockForUpdate()->firstOrFail();
-        abort_unless($auction->status === 'live', 422, 'Only a live auction can create a continuation slot.');
-        $last = $auction->slots()->latest('sequence')->lockForUpdate()->firstOrFail();
-        abort_if($last->status !== 'closed', 422, 'The current slot must be closed first.');
-        $active = $auction->slots()->where('status', 'active')->first();
-        if ($active) return response()->json(['slot' => $active, 'idempotent' => true], 200);
+        [$auction, $slot, $idempotent] = \DB::transaction(function () use ($code) {
+            $auction = Auction::where('code', $code)->lockForUpdate()->firstOrFail();
+            abort_unless($auction->status === 'live', 422, 'Only a live auction can create a continuation slot.');
+            $active = $auction->slots()->where('status', 'active')->lockForUpdate()->first();
+            if ($active) return [$auction->fresh(['slots']), $active, true];
+            $last = $auction->slots()->latest('sequence')->lockForUpdate()->firstOrFail();
+            abort_if($last->status !== 'closed', 422, 'The current slot must be closed first.');
 
-        $start = now();
-        $hardEnd = ($auction->actual_started_at ?? $auction->schedule_start ?? $auction->published_at ?? $auction->created_at)
-            ->copy()->addMinutes((int) $auction->frozenConfig('maximum_auction_duration_minutes', \App\Services\GeneralSettings::int('maximum_auction_duration_minutes', 120)));
-        $duration = (int) $auction->frozenConfig('continuation_slot_minutes', \App\Services\GeneralSettings::int('continuation_slot_minutes', 2));
-        $end = min($start->copy()->addMinutes($duration)->getTimestamp(), $hardEnd->getTimestamp());
-        abort_if($end <= $start->getTimestamp(), 422, 'Maximum auction duration has been reached.');
-        $end = now()->setTimestamp($end);
-        $slot = $auction->slots()->create([
-            'sequence' => $last->sequence + 1,
-            'type' => 'continuation',
-            'starts_at' => $start,
-            'ends_at' => $end,
-            'cutoff_at' => $end->copy()->subMilliseconds((int) $auction->frozenConfig('bid_cutoff_ms', \App\Services\GeneralSettings::int('bid_cutoff_ms', 500))),
-            'status' => 'active',
-        ]);
-        broadcast(new AuctionStateChanged($auction->fresh(), 'slot_started'));
-        return response()->json(['slot' => $slot], 201);
+            $start = now();
+            $hardEnd = ($auction->actual_started_at ?? $auction->schedule_start ?? $auction->published_at ?? $auction->created_at)
+                ->copy()->addMinutes((int) $auction->frozenConfig('maximum_auction_duration_minutes', \App\Services\GeneralSettings::int('maximum_auction_duration_minutes', 120)));
+            $duration = (int) $auction->frozenConfig('continuation_slot_minutes', \App\Services\GeneralSettings::int('continuation_slot_minutes', 2));
+            $end = min($start->copy()->addMinutes($duration)->getTimestamp(), $hardEnd->getTimestamp());
+            abort_if($end <= $start->getTimestamp(), 422, 'Maximum auction duration has been reached.');
+            $end = now()->setTimestamp($end);
+            $slot = $auction->slots()->create([
+                'sequence' => $last->sequence + 1, 'type' => 'continuation',
+                'starts_at' => $start, 'ends_at' => $end,
+                'cutoff_at' => $end->copy()->subMilliseconds((int) $auction->frozenConfig('bid_cutoff_ms', \App\Services\GeneralSettings::int('bid_cutoff_ms', 500))),
+                'status' => 'active',
+            ]);
+            return [$auction->fresh(['slots']), $slot, false];
+        });
+        if (! $idempotent) {
+            AuditLogger::write('NEXT_SLOT_STARTED', 'auction_slot', (string) $slot->id, [
+                'auction_id' => $auction->id, 'auction_code' => $auction->code,
+                'sequence' => $slot->sequence,
+            ], $request->user());
+            broadcast(new AuctionStateChanged($auction, 'slot_started'));
+        }
+        return response()->json(['slot' => $slot, 'idempotent' => $idempotent], $idempotent ? 200 : 201);
     }
 
     /**
@@ -532,66 +552,76 @@ class AuctionController extends Controller
      */
     public function close(Request $request, string $code): AuctionResource
     {
-        $auction = Auction::where('code', $code)->firstOrFail();
+        // Older clients may omit the reason; the API records an explicit
+        // compatibility reason while current operator UIs require one.
+        $data = $request->validate(['reason' => ['sometimes', 'string', 'max:500']]);
+        $data['reason'] = trim($data['reason'] ?? 'ADMIN_CLOSE');
+        $auction = \DB::transaction(function () use ($code, $data) {
+            $auction = Auction::where('code', $code)->lockForUpdate()->firstOrFail();
 
-        abort_if(
-            in_array($auction->status, ['closed', 'cancelled'], true),
-            422,
-            'This auction is already closed.',
-        );
+            abort_if(
+                in_array($auction->status, ['closed', 'cancelled'], true),
+                422,
+                'This auction is already closed.',
+            );
 
-        $winning = $auction->bids()
-            ->orderBy('amount', $auction->isReverse() ? 'asc' : 'desc')
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->first();
-
-        $isReserveMet = true;
-        if (! $auction->isReverse() && $auction->reserve_price && ! $auction->reserve_na && $winning) {
-            if ((float) $winning->amount < (float) $auction->reserve_price) {
-                $isReserveMet = false;
-            }
-        }
-
-        $activeSlot = $auction->slots()->where('status', 'active')->lockForUpdate()->first();
-        if ($activeSlot) {
-            $activeSlot->update(['status' => 'closed', 'closed_at' => now(), 'close_reason' => 'AUCTION_CLOSED']);
-        }
-
-        $auction->update([
-            'status' => 'closed',
-            'closed_at' => now(),
-            'final_price' => $winning?->amount ?? $auction->current_highest,
-            'winner_vendor_id' => $isReserveMet ? $winning?->vendor_id : null,
-            'winner_name' => $isReserveMet ? $winning?->vendor_name : null,
-            'review_comment' => ! $isReserveMet ? 'Reserve price not met' : $auction->review_comment,
-        ]);
-
-        foreach ($auction->lots as $lot) {
-            $lotWinner = $lot->bids()
+            $winning = $auction->bids()
                 ->orderBy('amount', $auction->isReverse() ? 'asc' : 'desc')
                 ->orderBy('created_at')
                 ->orderBy('id')
                 ->first();
 
-            $lot->update([
-                'status' => 'closed',
-                'final_price' => $lotWinner?->amount,
-                'winner_vendor_id' => $lotWinner?->vendor_id,
-            ]);
-        }
+            $isReserveMet = true;
+            if (! $auction->isReverse() && $auction->reserve_price && ! $auction->reserve_na && $winning) {
+                $isReserveMet = (float) $winning->amount >= (float) $auction->reserve_price;
+            }
 
-        if (! $auction->actual_started_at) {
-            // Compatibility path for auctions created before authoritative
-            // START. New auctions retain the top two EMDs for fallback.
-            $this->emd->releaseLosers($auction);
-        } else {
-            app(AuctionResultService::class)->finalize($auction, 'ADMIN_CLOSE');
-        }
+            $activeSlot = $auction->slots()->where('status', 'active')->lockForUpdate()->first();
+            if ($activeSlot) {
+                $activeSlot->update(['status' => 'closed', 'closed_at' => now(), 'close_reason' => 'AUCTION_CLOSED']);
+            }
+
+            $auction->update([
+                'status' => 'closed',
+                'closed_at' => now(),
+                'final_price' => $winning?->amount ?? $auction->current_highest,
+                'winner_vendor_id' => $isReserveMet ? $winning?->vendor_id : null,
+                'winner_name' => $isReserveMet ? $winning?->vendor_name : null,
+                'review_comment' => $isReserveMet ? $data['reason'] : 'Reserve price not met',
+            ]);
+
+            foreach ($auction->lots as $lot) {
+                $lotWinner = $lot->bids()
+                    ->orderBy('amount', $auction->isReverse() ? 'asc' : 'desc')
+                    ->orderBy('created_at')
+                    ->orderBy('id')
+                    ->first();
+
+                $lot->update([
+                    'status' => 'closed',
+                    'final_price' => $lotWinner?->amount,
+                    'winner_vendor_id' => $lotWinner?->vendor_id,
+                ]);
+            }
+
+            if (! $auction->actual_started_at) {
+                $this->emd->releaseLosers($auction);
+            } else {
+                app(AuctionResultService::class)->finalize($auction, 'ADMIN_CLOSE');
+            }
+
+            return $auction->fresh(['lots']);
+        });
+
+        AuditLogger::write('AUCTION_CLOSED', 'auction', (string) $auction->id, [
+            'auction_code' => $auction->code,
+            'final_price' => $auction->final_price,
+            'reason' => $data['reason'],
+        ], $request->user());
         $this->notifications->auctionClosed($auction);
         broadcast(new AuctionStateChanged($auction, 'closed'));
 
-        return new AuctionResource($auction->fresh(['lots']));
+        return new AuctionResource($auction);
     }
 
     public function result(Request $request, string $code): JsonResponse
@@ -762,32 +792,71 @@ class AuctionController extends Controller
     public function closeDiscoveryRound(Request $request,string $code,int $roundId): JsonResponse { $round=RfqDiscoveryRound::whereHas('auction',fn($q)=>$q->where('code',$code))->with('submissions')->findOrFail($roundId); abort_unless($round->status==='live',422,'Round is not live.'); $round->update(['status'=>'closed','closed_by'=>$request->user()->id,'closed_at'=>now()]); $values=$round->submissions->pluck('submitted_value')->map(fn($v)=>(float)$v); return response()->json(['data'=>$round->fresh(),'summary'=>['lowest'=>$values->min(),'highest'=>$values->max(),'average'=>$values->avg(),'median'=>$values->sort()->values()->get(intdiv(max(0,$values->count()-1),2))]]); }
 
     /** Lightweight polling fallback for clients not on the websocket. */
-    public function liveState(string $code): JsonResponse
+    public function liveState(Request $request, string $code): JsonResponse
     {
-        $auction = Auction::where('code', $code)->with(['lots', 'slots' => fn ($q) => $q->where('status', 'active')->latest('sequence')])->firstOrFail();
-        $slot = $auction->slots->first();
+        $user = $request->user();
+        $isStaff = $user?->hasPermission('auction.live.view') && ! $user->hasRole('buyer', 'seller');
+        $auction = Auction::where('code', $code)->with(['lots', 'configSnapshot', 'category'])->firstOrFail();
+        $slot = $auction->slots()->where('status', 'active')->latest('sequence')->first();
         $serverTime = now();
-        $rankedBids = $auction->bids()
-            ->when($slot, fn ($q) => $q->where('slot_id', $slot->id))
-            ->orderBy('amount', $auction->isReverse() ? 'asc' : 'desc')
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->get();
-        $userVendorId = request()->user()?->vendor_id;
-        $own = $userVendorId ? $rankedBids->firstWhere('vendor_id', $userVendorId) : null;
+        $allBids = $auction->bids()->get();
+        $rankedBids = ($slot ? $allBids->where('slot_id', $slot->id) : $allBids)
+            ->sort(function ($left, $right) use ($auction) {
+                $amountComparison = (float) $left->amount <=> (float) $right->amount;
+                if ($amountComparison !== 0) {
+                    return $auction->isReverse() ? $amountComparison : -$amountComparison;
+                }
 
-        return response()->json([
+                return [$left->created_at?->getTimestamp(), $left->id]
+                    <=> [$right->created_at?->getTimestamp(), $right->id];
+            })
+            ->values();
+        $allBidsCount = $allBids->count();
+        $participantCount = (int) $auction->bids()->distinct('vendor_id')->count('vendor_id');
+        $lastBid = $auction->bids()->latest('id')->first();
+        $hardDuration = (int) $auction->frozenConfig(
+            'maximum_auction_duration_minutes',
+            GeneralSettings::int('maximum_auction_duration_minutes', 120),
+        );
+        // New live sessions use actual_started_at for the authoritative hard
+        // stop. For legacy live rows without it, expose the stored end time
+        // instead of inferring an already-expired deadline from old timestamps.
+        $hardEnd = $auction->actual_started_at
+            ? $auction->actual_started_at->copy()->addMinutes($hardDuration)
+            : ($auction->schedule_end ?? $auction->schedule_start?->copy()->addMinutes($hardDuration));
+        if ($hardEnd && $auction->schedule_end && $hardEnd->gt($auction->schedule_end)) {
+            $hardEnd = $auction->schedule_end->copy();
+        }
+        $userVendorId = $user?->vendor_id;
+        $own = $userVendorId ? $rankedBids->firstWhere('vendor_id', $userVendorId) : null;
+        $current = $auction->current_highest !== null ? (float) $auction->current_highest : null;
+
+        $payload = [
+            'auction_id' => $auction->id,
             'code' => $auction->code,
+            'auction_code' => $auction->code,
+            'title' => $auction->title,
+            'company' => $auction->company,
+            'category' => $auction->category?->name ?? $auction->material_type,
+            'location' => $auction->location,
             'status' => $auction->status,
             'direction' => $auction->direction,
-            'current_highest_inr' => $auction->current_highest !== null ? (float) $auction->current_highest : null,
+            'starting_price_inr' => $auction->starting_price !== null ? (float) $auction->starting_price : null,
+            'current_highest_inr' => $current,
+            'current_lowest_inr' => $auction->isReverse() ? $current : null,
+            'current_price_inr' => $current,
             'bid_increment_inr' => (float) $auction->bid_increment,
-            'bidders' => $auction->bidders_count,
+            'bidders' => $auction->bidders_count ?: $participantCount,
             'bid_count' => $rankedBids->count(),
+            'total_bids' => $allBidsCount,
+            'participant_count' => $participantCount,
+            'eligible_participants' => $isStaff ? app(\App\Services\AuctionEligibilityService::class)->count($auction) : null,
+            'connected_participants' => null,
             'last_bid' => $rankedBids->sortByDesc('id')->first() ? [
                 'amount_inr' => (float) $rankedBids->sortByDesc('id')->first()->amount,
                 'server_received_at' => $rankedBids->sortByDesc('id')->first()->created_at?->toIso8601String(),
             ] : null,
+            'last_bid_at' => $lastBid?->created_at?->toIso8601String(),
             'ranking' => $rankedBids->take(3)->values()->map(fn ($bid, $index) => [
                 'rank' => ($auction->isReverse() ? 'L' : 'H').($index + 1),
                 'amount_inr' => (float) $bid->amount,
@@ -797,11 +866,12 @@ class AuctionController extends Controller
             'own_rank' => $own ? $rankedBids->search(fn ($bid) => $bid->id === $own->id) + 1 : null,
             'schedule_end' => $auction->schedule_end?->toIso8601String(),
             'actual_started_at' => $auction->actual_started_at?->toIso8601String(),
-            'hard_end_at' => $auction->schedule_end?->toIso8601String(),
+            'hard_end_at' => $hardEnd?->toIso8601String(),
             'active_slot' => $slot ? [
                 'id' => $slot->id,
                 'sequence' => $slot->sequence,
                 'type' => $slot->type,
+                'started_at' => $slot->starts_at?->toIso8601String(),
                 'starts_at' => $slot->starts_at?->toIso8601String(),
                 'ends_at' => $slot->ends_at?->toIso8601String(),
                 'cutoff_at' => $slot->cutoff_at?->toIso8601String(),
@@ -816,7 +886,80 @@ class AuctionController extends Controller
                 'bidders' => $l->bidders_count,
             ]),
             'server_time' => $serverTime->toIso8601String(),
-        ]);
+        ];
+
+        // The controller needs the complete slot/config timeline. Public
+        // bidders only need the active slot and server-safe market fields.
+        if ($isStaff) {
+            $payload['configuration'] = $auction->configSnapshot?->config;
+            $payload['slots'] = $auction->slots()->orderBy('sequence')->get()->map(fn ($item) => [
+                'id' => $item->id, 'sequence' => $item->sequence, 'type' => $item->type,
+                'started_at' => $item->starts_at?->toIso8601String(),
+                'starts_at' => $item->starts_at?->toIso8601String(),
+                'ends_at' => $item->ends_at?->toIso8601String(),
+                'cutoff_at' => $item->cutoff_at?->toIso8601String(),
+                'status' => $item->status, 'close_reason' => $item->close_reason,
+                'bid_count' => $allBids->where('slot_id', $item->id)->count(),
+                'closing_price_inr' => $allBids->where('slot_id', $item->id)->sortByDesc('id')->first()?->amount !== null
+                    ? (float) $allBids->where('slot_id', $item->id)->sortByDesc('id')->first()->amount
+                    : null,
+                'closed_at' => $item->closed_at?->toIso8601String(),
+            ]);
+            $participantRows = $auction->emdTransactions()
+                ->where('status', 'locked')
+                ->with('vendor')
+                ->get()
+                ->unique('vendor_id')
+                ->values()
+                ->map(function ($emd) use ($auction, $allBids, $rankedBids) {
+                    $vendor = $emd->vendor;
+                    $vendorBids = $allBids->where('vendor_id', $emd->vendor_id);
+                    $last = $vendorBids->sortByDesc('id')->first();
+                    $rank = $rankedBids->search(fn ($bid) => (int) $bid->vendor_id === (int) $emd->vendor_id);
+
+                    return [
+                        'id' => $vendor?->code ?? $emd->vendor_id,
+                        'name' => $vendor?->company_name,
+                        'alias' => $vendor?->code,
+                        'eligibility' => 'eligible',
+                        'connection_state' => null,
+                        'last_seen_at' => null,
+                        'bid_count' => $vendorBids->count(),
+                        'last_bid_at' => $last?->created_at?->toIso8601String(),
+                        'current_rank' => $rank === false ? null : $rank + 1,
+                    ];
+                });
+            $payload['participants'] = $participantRows;
+            $slotIds = $auction->slots()->pluck('id');
+            $bidIds = $allBids->pluck('id');
+            $payload['audit_events'] = AuditLog::query()
+                ->where(function ($query) use ($auction, $slotIds, $bidIds) {
+                    $query->where(function ($q) use ($auction) {
+                        $q->where('entity_type', 'auction')->where('entity_id', (string) $auction->id);
+                    })->orWhere(function ($q) use ($slotIds) {
+                        $q->where('entity_type', 'auction_slot')->whereIn('entity_id', $slotIds);
+                    })->orWhere(function ($q) use ($bidIds) {
+                        $q->where('entity_type', 'bid')->whereIn('entity_id', $bidIds);
+                    })->orWhere('meta->auction_id', $auction->id);
+                })
+                ->latest('created_at')->latest('id')->limit(50)->get()
+                ->map(fn (AuditLog $event) => [
+                    'id' => $event->code,
+                    'at' => $event->created_at?->toIso8601String(),
+                    'action' => $event->action,
+                    'entity_type' => $event->entity_type,
+                    'entity_id' => $event->entity_id,
+                    'user' => $event->user_name,
+                    'role' => $event->role,
+                    'meta' => $event->meta,
+                ]);
+            $payload['initial_slot_minutes'] = $auction->frozenConfig('initial_slot_minutes');
+            $payload['continuation_slot_minutes'] = $auction->frozenConfig('continuation_slot_minutes');
+            $payload['maximum_auction_duration_minutes'] = $auction->frozenConfig('maximum_auction_duration_minutes');
+            $payload['last_bid_at'] = $lastBid?->created_at?->toIso8601String();
+        }
+
+        return response()->json($payload);
     }
 
     private function validated(Request $request, bool $partial = false): array
@@ -825,10 +968,18 @@ class AuctionController extends Controller
 
         return $request->validate([
             'title' => [$r, 'string', 'max:200'],
+            'description' => ['sometimes', 'nullable', 'string'],
             'company' => [$r, 'string', 'max:180'],
+            'client_code' => ['sometimes', 'nullable', 'string', 'max:80'],
             'organization_code' => ['sometimes', 'nullable', 'string', 'exists:organizations,code'],
             'plant' => ['sometimes', 'nullable', 'string', 'max:180'],
             'warehouse' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'warehouse_details' => ['sometimes', 'nullable', 'array'],
+            'warehouse_details.address' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'warehouse_details.city' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'warehouse_details.state' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'warehouse_details.pincode' => ['sometimes', 'nullable', 'string', 'size:6', new IndianPincode()],
+            'warehouse_details.contact' => ['sometimes', 'nullable', 'string', 'max:120'],
             'location' => ['sometimes', 'nullable', 'string', 'max:180'],
             'category' => ['sometimes', 'nullable', 'string'],
             'lot_type' => ['sometimes', Rule::in(['single', 'lot_wise'])],
@@ -854,7 +1005,7 @@ class AuctionController extends Controller
             'lifting_period' => ['sometimes', 'nullable', 'string', 'max:30'],
             'lifting_unit' => ['sometimes', Rule::in(['Days', 'Weeks'])],
             'contact_name' => ['sometimes', 'nullable', 'string', 'max:120'],
-            'contact_phone' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'contact_phone' => ['sometimes', 'nullable', 'string', 'max:20', new IndianMobileNumber()],
             'contact_email' => ['sometimes', 'nullable', 'email'],
             'photos' => ['sometimes', 'array'],
             'photos.*' => ['string'],

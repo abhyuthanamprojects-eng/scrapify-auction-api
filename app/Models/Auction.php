@@ -30,6 +30,7 @@ class Auction extends Model
         'current_highest' => 'decimal:2',
         'final_price' => 'decimal:2',
         'config_draft' => 'array',
+        'warehouse_details' => 'array',
     ];
 
     protected static int $codePad = 4;

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Events\BidPlaced;
 use App\Models\Auction;
 use App\Models\AuctionResult;
 use App\Models\AuctionSlot;
@@ -170,6 +171,27 @@ class LiveAuctionEngineTest extends TestCase
             ->assertJsonPath('ranking.0.rank', 'H1')
             ->assertJsonPath('own_rank', 1)
             ->assertJsonStructure(['server_time', 'hard_end_at', 'last_bid', 'ranking']);
+
+        $publicEvent = (new BidPlaced(Bid::latest('id')->firstOrFail()->load(['auction', 'lot'])))->broadcastWith();
+        $this->assertArrayNotHasKey('vendor_id', $publicEvent['bid']);
+        $this->assertArrayNotHasKey('vendor_name', $publicEvent['bid']);
+    }
+
+    public function test_auditor_can_read_live_state_but_cannot_mutate_live_engine(): void
+    {
+        [$auction, $slot] = $this->liveAuction();
+        $auditor = User::factory()->create(['role' => 'auditor', 'status' => 'active']);
+        Sanctum::actingAs($auditor);
+
+        $this->getJson("/api/v1/auctions/{$auction->code}/live-state")
+            ->assertOk()
+            ->assertJsonPath('auction_id', $auction->id)
+            ->assertJsonStructure(['slots', 'participants', 'audit_events']);
+
+        $this->postJson("/api/v1/auctions/{$auction->code}/go-live")->assertForbidden();
+        $this->postJson("/api/v1/auctions/{$auction->code}/slots/{$slot->sequence}/close", ['reason' => 'audit'])->assertForbidden();
+        $this->postJson("/api/v1/auctions/{$auction->code}/slots/next")->assertForbidden();
+        $this->postJson("/api/v1/auctions/{$auction->code}/close", ['reason' => 'audit'])->assertForbidden();
     }
 
     public function test_authoritative_close_freezes_result_and_retains_top_two_emd(): void

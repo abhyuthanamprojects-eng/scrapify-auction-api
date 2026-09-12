@@ -9,6 +9,7 @@ use App\Models\Vendor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class KycCrossPlatformLifecycleTest extends TestCase
@@ -20,6 +21,22 @@ class KycCrossPlatformLifecycleTest extends TestCase
         parent::setUp();
         $this->seed();
         Storage::fake('public');
+        Http::fake([
+            'https://api.postalpincode.in/pincode/400030' => Http::response([[
+                'Status' => 'Success',
+                'PostOffice' => [[
+                    'District' => 'Mumbai',
+                    'State' => 'Maharashtra',
+                    'Country' => 'India',
+                    'Name' => 'Worli',
+                    'BranchType' => 'Sub Post Office',
+                    'DeliveryStatus' => 'Delivery',
+                    'Division' => 'Mumbai City',
+                    'Region' => 'Mumbai',
+                    'Block' => 'Mumbai',
+                ]],
+            ]], 200),
+        ]);
     }
 
     public function test_full_buyer_and_seller_kyc_lifecycle_and_security_restrictions(): void

@@ -56,12 +56,19 @@ class FullPlatformEndToEndFlowTest extends TestCase
                 'phone' => '+91 9988771122',
                 'gst_number' => '27AAACA1234A1Z5',
                 'pan_number' => 'AAACA1234A',
+                'bank_name' => 'HDFC Bank Ltd',
+                'account_number' => '50200012345678',
+                'ifsc_code' => 'HDFC0000060',
+                'account_holder_name' => 'Rahul Singhania',
                 'address' => 'Plot 42, MIDC Industrial Area, Pune, Maharashtra 411018',
                 'terms_accepted' => true,
             ]);
 
         $buyerProfileResponse->assertStatus(201)
-            ->assertJsonPath('data.gst_number', '27AAACA1234A1Z5');
+            ->assertJsonPath('data.gst_number', '27AAACA1234A1Z5')
+            ->assertJsonPath('data.bank_name', 'HDFC Bank Ltd')
+            ->assertJsonPath('data.account_number', '50200012345678')
+            ->assertJsonPath('data.ifsc_code', 'HDFC0000060');
 
         // 3. Buyer Uploads GST Certificate with OCR Extraction
         $fakePdf = UploadedFile::fake()->create('gst_certificate.pdf', 300, 'application/pdf');

@@ -7,8 +7,7 @@ use App\Models\User;
 use Illuminate\Database\Seeder;
 
 /**
- * The fifteen entries from the admin panel's seedAuditLog() in
- * auctions-store.ts, with the same actions, actors, IPs and AL- codes.
+ * Local-only audit fixtures from the earlier admin demo store.
  *
  * Written with insert() rather than the model because AuditLog blocks writes
  * that are not append-only, and re-running the seeder must not update rows.
@@ -44,6 +43,10 @@ class AuditLogSeeder extends Seeder
 
     public function run(): void
     {
+        if (app()->environment('production')) {
+            return;
+        }
+
         $rows = [];
 
         foreach (self::ACTIONS as $i => $action) {

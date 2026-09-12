@@ -20,6 +20,7 @@ class Vendor extends Model
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'operating_states' => 'array',
+        'warehouse_details' => 'array',
         'rejection_items' => 'array',
     ];
 

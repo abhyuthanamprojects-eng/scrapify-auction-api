@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Rules\IndianMobileNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -78,8 +79,8 @@ class TeamController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'unique:users,email'],
-            'phone' => ['sometimes', 'nullable', 'string', 'max:20'],
-            'password' => ['required', 'string', 'min:8'],
+            'phone' => ['sometimes', 'nullable', 'string', 'max:20', new IndianMobileNumber()],
+            'password' => ['required', 'string', \Illuminate\Validation\Rules\Password::min(8)->mixedCase()->numbers()->symbols()],
             'role' => ['required', Rule::in(User::ROLES)],
             'status' => ['sometimes', Rule::in(['active', 'inactive', 'suspended'])],
         ]);
@@ -143,7 +144,7 @@ class TeamController extends Controller
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:120'],
             'email' => ['sometimes', 'email', Rule::unique('users', 'email')->ignore($member->id)],
-            'phone' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'phone' => ['sometimes', 'nullable', 'string', 'max:20', new IndianMobileNumber()],
             'role' => ['sometimes', Rule::in(User::ROLES)],
             'status' => ['sometimes', Rule::in(['active', 'inactive', 'suspended'])],
         ]);

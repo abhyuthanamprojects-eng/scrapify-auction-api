@@ -140,23 +140,11 @@ class BiddingService
 
             $this->refreshTotals($auction, $lot);
 
-            // Legacy auctions created before authoritative START may still
-            // use the historical schedule extension behavior. New auctions
-            // with actual_started_at use immutable slot ends; continuation is
-            // an explicit new slot operation.
-            if (! $auction->actual_started_at && $auction->schedule_end && now()->lt($auction->schedule_end)) {
-                $continuationMinutes = \App\Services\GeneralSettings::int('continuation_slot_minutes', 2);
-                if (now()->diffInSeconds($auction->schedule_end, false) <= ($continuationMinutes * 60)) {
-                    $auction->update(['schedule_end' => $auction->schedule_end->addMinutes($continuationMinutes)]);
-                    \App\Models\AuctionExtension::create([
-                        'auction_id' => $auction->id,
-                        'user_id' => $user?->id,
-                        'minutes' => $continuationMinutes,
-                        'reason' => "Legacy schedule extension triggered by bid within final {$continuationMinutes} minutes.",
-                    ]);
-                    broadcast(new \App\Events\AuctionStateChanged($auction, 'extended'));
-                }
-            }
+            AuditLogger::write('BID_ACCEPTED', 'bid', (string) $bid->id, [
+                'auction_id' => $auction->id, 'slot_id' => $slot->id,
+                'amount' => $amount, 'is_proxy' => $isProxy,
+                'idempotency_key' => $idempotencyKey,
+            ], $user);
 
             if ($previousLeader && $previousLeader->vendor_id !== $vendor->id) {
                 $this->notifications->outbid($previousLeader, $auction, $amount);
@@ -291,7 +279,20 @@ class BiddingService
             ]);
         }
 
-        if ($auction->schedule_end && $auction->schedule_end->isPast()) {
+        $hardDuration = (int) $auction->frozenConfig(
+            'maximum_auction_duration_minutes',
+            \App\Services\GeneralSettings::int('maximum_auction_duration_minutes', 120),
+        );
+        // A started auction has a server-owned hard stop. Legacy live rows may
+        // predate actual_started_at, so keep their persisted schedule_end rather
+        // than retroactively expiring them from an inferred historical timestamp.
+        $hardEnd = $auction->actual_started_at
+            ? $auction->actual_started_at->copy()->addMinutes($hardDuration)
+            : ($auction->schedule_end ?? $auction->schedule_start?->copy()->addMinutes($hardDuration));
+        if ($hardEnd && $auction->schedule_end && $hardEnd->gt($auction->schedule_end)) {
+            $hardEnd = $auction->schedule_end->copy();
+        }
+        if ($hardEnd && $hardEnd->isPast()) {
             throw ValidationException::withMessages([
                 'auction' => 'Bidding has closed for this auction.',
             ]);

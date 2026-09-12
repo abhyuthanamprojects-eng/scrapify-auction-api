@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\GeneralSetting;
+use App\Rules\IndianMobileNumber;
 use App\Services\AuditLogger;
 use App\Services\GeneralSettings;
 use App\Services\Msg91Service;
@@ -80,7 +81,7 @@ class OtpSettingsController extends Controller
     public function sendTest(Request $request, Msg91Service $msg91): JsonResponse
     {
         $data = $request->validate([
-            'phone' => ['required', 'regex:/^(?:\+?91[6-9]\d{9}|[6-9]\d{9})$/'],
+            'phone' => ['required', 'string', new IndianMobileNumber()],
         ]);
 
         if (! GeneralSettings::bool('msg91_enabled', true)) {

@@ -35,6 +35,7 @@ class VendorResource extends JsonResource
             'state' => $this->state,
             'pincode' => $this->pincode,
             'operating_states' => $this->operating_states ?? [],
+            'warehouse_details' => $this->warehouse_details ?? [],
 
             // Tax & Identifiers
             'gst_number' => $this->gst_number,

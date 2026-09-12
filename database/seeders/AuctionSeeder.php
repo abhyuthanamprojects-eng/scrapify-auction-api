@@ -10,12 +10,10 @@ use App\Models\Vendor;
 use Illuminate\Database\Seeder;
 
 /**
- * The nine auctions from the admin panel's src/lib/auctions-store.ts seed(),
- * plus the five from the mobile demo's src/lib/auctions-store.ts, keeping the
- * original codes, prices, sub-lots and bids.
+ * Local development fixtures copied from the earlier admin/mobile demo stores.
  *
- * The mock data uses relative times (`iso(-6)`, `iso(48)`) so live auctions
- * stay live whenever the seeder runs — that behaviour is preserved here.
+ * These fixtures are deliberately unavailable in production. Production data
+ * must be created through the API and cannot be populated by demo seeders.
  */
 class AuctionSeeder extends Seeder
 {
@@ -26,6 +24,10 @@ class AuctionSeeder extends Seeder
 
     public function run(): void
     {
+        if (app()->environment('production')) {
+            return;
+        }
+
         foreach ($this->adminAuctions() as $row) {
             $this->create($row);
         }
