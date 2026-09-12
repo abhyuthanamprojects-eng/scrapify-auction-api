@@ -97,7 +97,11 @@ class OtpSettingsController extends Controller
             return response()->json(['message' => $result['message'], 'error' => ['code' => $result['code'] ?? 'OTP_PROVIDER_ERROR']], 422);
         }
 
-        return response()->json(['message' => 'Test OTP sent successfully.']);
+        return response()->json([
+            'message' => 'Test OTP request accepted by MSG91. Delivery may take a moment.',
+            'provider_request_id' => $result['request_id'] ?? null,
+            'provider_message' => $result['provider_message'] ?? null,
+        ]);
     }
 
     private function maskSecret(?string $secret): ?string

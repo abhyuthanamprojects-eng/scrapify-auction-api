@@ -49,14 +49,26 @@ class Msg91Service
             ])->post($url, []);
 
             $body = $response->json();
-            Log::info('MSG91 OTP send completed', ['status' => $response->status()]);
+            $providerType = is_array($body) ? ($body['type'] ?? null) : null;
+            $providerMessage = is_array($body) ? ($body['message'] ?? null) : null;
+            $requestId = is_array($body) ? ($body['request_id'] ?? $body['reqId'] ?? null) : null;
+            Log::info('MSG91 OTP send completed', [
+                'status' => $response->status(),
+                'type' => $providerType,
+                'message' => is_string($providerMessage) ? $providerMessage : null,
+                'request_id' => is_string($requestId) ? $requestId : null,
+            ]);
 
             return [
-                'success' => $response->successful() && ($body['type'] ?? null) === 'success',
+                'success' => $response->successful() && $providerType === 'success',
                 'code' => $response->successful() ? null : 'OTP_PROVIDER_ERROR',
-                'message' => ($response->successful() && ($body['type'] ?? null) === 'success')
+                'request_id' => is_string($requestId) ? $requestId : null,
+                'provider_message' => is_string($providerMessage) ? $providerMessage : null,
+                'message' => ($response->successful() && $providerType === 'success')
                     ? 'OTP sent successfully.'
-                    : 'We could not send the OTP right now. Please try again.',
+                    : (is_string($providerMessage) && $providerMessage !== ''
+                        ? $providerMessage
+                        : 'We could not send the OTP right now. Please try again.'),
             ];
         } catch (\Throwable $exception) {
             Log::error('MSG91 OTP send failed', ['error_class' => get_class($exception)]);
