@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Exceptions\PincodeProviderException;
 use App\Services\PincodeLookupService;
 use Illuminate\Http\JsonResponse;
 
@@ -16,7 +17,16 @@ class PincodeController extends Controller
             ], 422);
         }
 
-        $data = $pincodeService->lookup($pincode);
+        try {
+            $data = $pincodeService->lookup($pincode);
+        } catch (PincodeProviderException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'error' => [
+                    'code' => $exception->errorCode,
+                ],
+            ], $exception->httpStatus)->header('Retry-After', (string) $exception->retryAfter);
+        }
 
         if (! $data) {
             return response()->json([
