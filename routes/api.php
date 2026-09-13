@@ -164,7 +164,7 @@ Route::prefix('v1')->group(function () {
         // Document access supports both a vendor's public workspace and
         // authorized admin review. The controller still enforces ownership or
         // an internal role, so this route must not be public-context-only.
-        Route::get('vendors/{code}/documents/{id}/download', [VendorController::class, 'downloadDocument']);
+        Route::get('vendors/{code}/documents/{documentId}/download', [VendorController::class, 'downloadDocument']);
             Route::post('vendors/{code}/documents', [VendorController::class, 'uploadDocument']);
             Route::get('vendors/{code}/documents', [VendorController::class, 'documents']);
         Route::post('vendors/invitations', [VendorController::class, 'invite'])

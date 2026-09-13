@@ -29,7 +29,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class VendorController extends Controller
 {
@@ -548,7 +548,7 @@ class VendorController extends Controller
     /**
      * Securely stream / download an uploaded vendor document.
      */
-    public function downloadDocument(Request $request, string $code, int $documentId): BinaryFileResponse|JsonResponse
+    public function downloadDocument(Request $request, string $code, int $documentId): StreamedResponse|JsonResponse
     {
         $vendor = Vendor::where('code', $code)->firstOrFail();
         $this->authorizeVendorAccess($request, $vendor);
@@ -559,7 +559,13 @@ class VendorController extends Controller
             return response()->json(['message' => 'Document file not found on server.'], 404);
         }
 
-        return response()->download(Storage::disk('public')->path($doc->file_path), $doc->file_name);
+        $inline = $request->boolean('inline');
+
+        return Storage::disk('public')->response(
+            $doc->file_path,
+            $doc->file_name,
+            ['Content-Disposition' => ($inline ? 'inline' : 'attachment').'; filename="'.addslashes($doc->file_name).'"'],
+        );
     }
 
     /**
