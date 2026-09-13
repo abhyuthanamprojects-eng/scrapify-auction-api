@@ -87,16 +87,23 @@ class OtpService
                     'mail.mailers.smtp.password' => GeneralSettings::secret('mail_password', config('mail.mailers.smtp.password')),
                     'mail.mailers.smtp.scheme' => GeneralSettings::string('mail_encryption', (string) config('mail.mailers.smtp.scheme', 'tls')),
                     'mail.from.address' => $fromAddress,
-                    'mail.from.name' => GeneralSettings::string('mail_from_name', (string) config('mail.from.name', 'Scrapify Auctions')),
+                    'mail.from.name' => GeneralSettings::string('email_from_name', (string) config('mail.from.name', 'Scrapify Auctions')),
                 ]);
                 $minutes = GeneralSettings::int('otp_expiry_minutes', 5);
-                $body = str_replace([':code', ':minutes'], [$code, (string) $minutes], GeneralSettings::string('email_otp_template', 'Your Scrapify Auctions verification code is :code. It expires in :minutes minutes.'));
-                Mail::raw($body, function ($message) use ($identifier): void {
-                    $message->to($identifier)->subject('Scrapify Auctions verification code');
+                $template = GeneralSettings::string('email_otp_template', 'Your Scrapify Auctions verification code is :code. It expires in :minutes minutes.');
+                $brandName = trim(GeneralSettings::string('email_from_name', 'Scrapify Auctions')) ?: 'Scrapify Auctions';
+                $messageBody = str_replace([':code', ':minutes'], ['the code below', (string) $minutes], $template);
+                Mail::send(['html' => 'emails.otp', 'text' => 'emails.otp-text'], [
+                    'brandName' => $brandName,
+                    'messageBody' => $messageBody,
+                    'code' => $code,
+                    'minutes' => $minutes,
+                    'showExpiry' => ! str_contains($template, ':minutes'),
+                ], function ($message) use ($identifier, $brandName): void {
+                    $message->to($identifier)->subject($brandName . ' verification code');
                     $from = GeneralSettings::string('email_from_address', (string) config('mail.from.address', ''));
-                    $name = GeneralSettings::string('email_from_name', (string) config('mail.from.name', 'Scrapify Auctions'));
                     if (filter_var($from, FILTER_VALIDATE_EMAIL)) {
-                        $message->from($from, $name);
+                        $message->from($from, $brandName);
                     }
                 });
             } catch (\Throwable $exception) {
