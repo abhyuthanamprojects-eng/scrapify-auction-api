@@ -15,6 +15,14 @@ class OtpService
         return filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'sms';
     }
 
+    public function otpLength(string $identifier): int
+    {
+        $key = $this->channel($identifier) === 'email' ? 'email_otp_length' : 'msg91_otp_length';
+        $default = $this->channel($identifier) === 'email' ? 6 : 4;
+
+        return min(8, max(4, GeneralSettings::int($key, $default)));
+    }
+
     public function normalizeIdentifier(string $identifier): string
     {
         $identifier = trim($identifier);
@@ -44,7 +52,8 @@ class OtpService
         }
 
         $testMode = (bool) config('services.msg91.otp_test_mode', false) && app()->environment(['local', 'testing']);
-        $code = $testMode ? '123456' : (string) random_int(100000, 999999);
+        $length = $this->otpLength($identifier);
+        $code = $testMode ? str_repeat('1', $length) : (string) random_int(10 ** ($length - 1), (10 ** $length) - 1);
 
         if ($channel === 'sms' && ! $testMode) {
             if (! GeneralSettings::bool('msg91_enabled', true)) {
@@ -59,6 +68,10 @@ class OtpService
             if (! GeneralSettings::bool('email_enabled', true)) {
                 return ['success' => false, 'code' => 'EMAIL_PROVIDER_DISABLED', 'message' => 'Email OTP verification is temporarily unavailable.'];
             }
+            $fromAddress = trim(GeneralSettings::string('email_from_address', (string) config('mail.from.address', '')));
+            if (app()->environment('production') && ! filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
+                return ['success' => false, 'code' => 'EMAIL_FROM_ADDRESS_INVALID', 'message' => 'Email OTP delivery is not configured with a valid verified sender address.'];
+            }
             if (! app()->environment(['local', 'testing']) && in_array(config('mail.default'), ['log', 'array'], true)) {
                 return ['success' => false, 'code' => 'EMAIL_PROVIDER_NOT_CONFIGURED', 'message' => 'Email OTP verification is not configured yet.'];
             }
@@ -70,7 +83,7 @@ class OtpService
                     'mail.mailers.smtp.username' => GeneralSettings::secret('mail_username', config('mail.mailers.smtp.username')),
                     'mail.mailers.smtp.password' => GeneralSettings::secret('mail_password', config('mail.mailers.smtp.password')),
                     'mail.mailers.smtp.scheme' => GeneralSettings::string('mail_encryption', (string) config('mail.mailers.smtp.scheme', 'tls')),
-                    'mail.from.address' => GeneralSettings::string('mail_from_address', (string) config('mail.from.address', '')),
+                    'mail.from.address' => $fromAddress,
                     'mail.from.name' => GeneralSettings::string('mail_from_name', (string) config('mail.from.name', 'Scrapify Auctions')),
                 ]);
                 $minutes = GeneralSettings::int('otp_expiry_minutes', 5);
@@ -102,6 +115,7 @@ class OtpService
 
         return [
             'success' => true,
+            'otp_length' => $length,
             'expires_at' => $otp->expires_at->toIso8601String(),
             'resend_after' => max(1, GeneralSettings::int('otp_resend_cooldown_seconds', 30)),
         ];

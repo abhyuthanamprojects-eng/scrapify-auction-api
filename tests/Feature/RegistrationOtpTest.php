@@ -34,6 +34,7 @@ class RegistrationOtpTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('channel', 'sms')
+            ->assertJsonPath('otp_length', 4)
             ->assertJsonMissingPath('debug_code')
             ->assertJsonMissingPath('otp');
         Http::assertSent(fn ($request) => str_contains($request->url(), '/otp?') && $request->hasHeader('authkey', 'test-auth-key'));
@@ -42,6 +43,7 @@ class RegistrationOtpTest extends TestCase
     public function test_email_request_uses_configured_mailer_without_returning_the_code(): void
     {
         Mail::fake();
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'email_from_address'], ['value' => 'smtp-test@example.com']);
 
         $response = $this->postJson('/api/v1/auth/request-otp', [
             'identifier' => 'person@example.com',
@@ -50,6 +52,7 @@ class RegistrationOtpTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('channel', 'email')
+            ->assertJsonPath('otp_length', 6)
             ->assertJsonMissingPath('debug_code')
             ->assertJsonMissingPath('otp');
     }
@@ -133,6 +136,7 @@ class RegistrationOtpTest extends TestCase
 
     public function test_registration_otp_purpose_cannot_be_replayed_as_login(): void
     {
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_otp_length'], ['value' => '6']);
         config([
             'services.msg91.auth_key' => 'test-auth-key',
             'services.msg91.otp_template_id' => 'test-template',
@@ -189,6 +193,7 @@ class RegistrationOtpTest extends TestCase
     public function test_admin_can_send_a_test_email_otp_without_exposing_the_code(): void
     {
         Mail::fake();
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'email_from_address'], ['value' => 'smtp-test@example.com']);
         $admin = User::factory()->create(['role' => 'admin', 'status' => 'active']);
         Sanctum::actingAs($admin, ['admin:panel']);
 

@@ -80,6 +80,8 @@ class OtpSettingsController extends Controller
             'msg91_sms_template_id' => GeneralSettings::string('msg91_sms_template_id', (string) config('services.msg91.sms_template_id', '')),
             'msg91_sender_id' => GeneralSettings::string('msg91_sender_id', (string) config('services.msg91.sender_id', '')),
             'msg91_country_code' => GeneralSettings::string('msg91_country_code', (string) config('services.msg91.country_code', '91')),
+            'msg91_otp_length' => GeneralSettings::int('msg91_otp_length', 4),
+            'email_otp_length' => GeneralSettings::int('email_otp_length', 6),
             'otp_expiry_minutes' => GeneralSettings::int('otp_expiry_minutes', 5),
             'otp_resend_cooldown_seconds' => GeneralSettings::int('otp_resend_cooldown_seconds', 30),
             'otp_max_verification_attempts' => GeneralSettings::int('otp_max_verification_attempts', 5),
@@ -101,6 +103,8 @@ class OtpSettingsController extends Controller
             'msg91_sms_template_id' => ['sometimes', 'nullable', 'string', 'max:120'],
             'msg91_sender_id' => ['sometimes', 'required_if:msg91_enabled,true', 'string', 'max:30'],
             'msg91_country_code' => ['sometimes', 'required_if:msg91_enabled,true', 'string', 'max:8'],
+            'msg91_otp_length' => ['sometimes', 'integer', 'min:4', 'max:8'],
+            'email_otp_length' => ['sometimes', 'integer', 'min:4', 'max:8'],
             'otp_expiry_minutes' => ['sometimes', 'integer', 'min:1', 'max:30'],
             'otp_resend_cooldown_seconds' => ['sometimes', 'integer', 'min:10', 'max:3600'],
             'otp_max_verification_attempts' => ['sometimes', 'integer', 'min:1', 'max:10'],
@@ -108,7 +112,7 @@ class OtpSettingsController extends Controller
             'otp_rate_limit_per_hour' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
 
-        foreach (['email_enabled', 'email_from_name', 'email_from_address', 'email_otp_template', 'msg91_enabled', 'msg91_otp_template_id', 'msg91_sms_template_id', 'msg91_sender_id', 'msg91_country_code', 'otp_expiry_minutes', 'otp_resend_cooldown_seconds', 'otp_max_verification_attempts', 'otp_max_resend_attempts', 'otp_rate_limit_per_hour'] as $key) {
+        foreach (['email_enabled', 'email_from_name', 'email_from_address', 'email_otp_template', 'msg91_enabled', 'msg91_otp_template_id', 'msg91_sms_template_id', 'msg91_sender_id', 'msg91_country_code', 'msg91_otp_length', 'email_otp_length', 'otp_expiry_minutes', 'otp_resend_cooldown_seconds', 'otp_max_verification_attempts', 'otp_max_resend_attempts', 'otp_rate_limit_per_hour'] as $key) {
             if (array_key_exists($key, $data)) {
                 GeneralSetting::updateOrCreate(['key' => $key], ['value' => (string) $data[$key]]);
             }
@@ -172,6 +176,14 @@ class OtpSettingsController extends Controller
             return response()->json([
                 'message' => 'Email OTP is disabled.',
                 'error' => ['code' => 'EMAIL_PROVIDER_DISABLED'],
+            ], 422);
+        }
+
+        $from = trim(GeneralSettings::string('email_from_address', ''));
+        if (! filter_var($from, FILTER_VALIDATE_EMAIL)) {
+            return response()->json([
+                'message' => 'Email From Address is missing or invalid. Set a verified Brevo sender address and save OTP Configuration.',
+                'error' => ['code' => 'EMAIL_FROM_ADDRESS_INVALID'],
             ], 422);
         }
 

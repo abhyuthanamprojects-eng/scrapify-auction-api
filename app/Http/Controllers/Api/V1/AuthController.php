@@ -423,6 +423,7 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'OTP sent.',
             'channel' => $this->otpService->channel($identifier),
+            'otp_length' => $result['otp_length'] ?? $this->otpService->otpLength($identifier),
             'destination' => $this->maskDestination($identifier),
             'expires_at' => $result['expires_at'],
             'resend_after' => $result['resend_after'],
@@ -445,6 +446,7 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'OTP resent.',
             'channel' => $this->otpService->channel($identifier),
+            'otp_length' => $result['otp_length'] ?? $this->otpService->otpLength($identifier),
             'destination' => $this->maskDestination($identifier),
             'expires_at' => $result['expires_at'],
             'resend_after' => $result['resend_after'],
@@ -455,11 +457,14 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'identifier' => ['required', 'string'],
-            'code' => ['required', 'digits:6'],
+            'code' => ['required', 'digits_between:4,8'],
             'purpose' => ['required', Rule::in(['login', 'register', 'verify'])],
         ]);
 
         $identifier = $this->normalizeOtpIdentifier($data['identifier']);
+        validator(['code' => $data['code']], [
+            'code' => ['digits:'.$this->otpService->otpLength($identifier)],
+        ])->validate();
         if (! $this->otpService->verify($identifier, $data['purpose'], $data['code'])) {
             throw ValidationException::withMessages(['code' => 'This OTP is invalid or has expired.']);
         }
