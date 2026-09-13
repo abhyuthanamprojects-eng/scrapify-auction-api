@@ -2,17 +2,19 @@
 
 namespace App\Services\Verification;
 
+use App\Exceptions\VerificationProviderException;
+use App\Services\GeneralSettings;
+
 class GSTVerificationService implements VerificationProviderInterface
 {
     public function isEnabled(): bool
     {
-        return config('services.gst.enabled', false);
+        return app(VerificationProviderResolver::class)->for('GSTIN')->isEnabled();
     }
 
     /**
-     * Validate GSTIN structure and perform automated verification.
-     * When external provider credentials are not configured, uses internal validation rules
-     * so development and manual reviews proceed without interruption.
+     * Keep the legacy onboarding response shape while delegating the real
+     * verification to the same resolver used by the KYB API.
      */
     public function verify(array $payload): array
     {
@@ -37,31 +39,16 @@ class GSTVerificationService implements VerificationProviderInterface
             ];
         }
 
-        if ($this->isEnabled()) {
-            // Placeholder for third-party GST API integration (e.g., ClearTax / GSTN / Karza)
-            // Credentials and secrets remain exclusively in server environment variables.
-            return [
-                'status' => 'valid',
-                'message' => 'Verified via GSTN Gateway.',
-                'data' => [
-                    'gstin' => $gstin,
-                    'legal_name' => $payload['company_name'] ?? 'Verified Enterprise Entity',
-                    'status' => 'Active',
-                    'verified_at' => now()->toIso8601String(),
-                ],
-            ];
+        $provider = app(VerificationProviderResolver::class)->for('GSTIN');
+        if (! $provider->isEnabled() || ! $provider->isConfigured('GSTIN')) {
+            return ['status' => 'pending', 'message' => 'GST provider is not configured.', 'data' => ['provider' => strtoupper($provider->key()), 'code' => 'PROVIDER_NOT_CONFIGURED']];
         }
 
-        // Internal Mock / Pass-through validation
-        return [
-            'status' => 'valid',
-            'message' => 'GST format validated. Pending admin/manual verification.',
-            'data' => [
-                'gstin' => $gstin,
-                'state_code' => substr($gstin, 0, 2),
-                'pan_extracted' => substr($gstin, 2, 10),
-                'verified_at' => now()->toIso8601String(),
-            ],
-        ];
+        try {
+            $result = $provider->verifyGstin($gstin, $payload['company_name'] ?? null);
+            return ['status' => $result->isVerified() ? 'valid' : 'invalid', 'message' => $result->isVerified() ? 'GSTIN verified by the active provider.' : 'GSTIN verification failed.', 'data' => $result->toArray()];
+        } catch (VerificationProviderException $exception) {
+            return ['status' => 'pending', 'message' => 'GST provider is temporarily unavailable.', 'data' => ['provider' => strtoupper($provider->key()), 'code' => $exception->errorCode]];
+        }
     }
 }

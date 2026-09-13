@@ -6,6 +6,7 @@ use App\Models\BusinessVerification;
 use App\Models\User;
 use App\Models\Vendor;
 use App\Models\VerificationProviderRequest;
+use App\Models\GeneralSetting;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
@@ -30,6 +31,9 @@ class BusinessVerificationTest extends TestCase
         config()->set('services.cashfree_secure_id.client_id', 'sandbox-client');
         config()->set('services.cashfree_secure_id.client_secret', 'sandbox-secret');
         config()->set('services.cashfree_secure_id.base_url', 'https://sandbox.cashfree.com/verification');
+        GeneralSetting::updateOrCreate(['key' => 'gst_verification_provider'], ['value' => 'cashfree']);
+        GeneralSetting::updateOrCreate(['key' => 'kyc_verification_provider'], ['value' => 'cashfree']);
+        GeneralSetting::updateOrCreate(['key' => 'bank_verification_provider'], ['value' => 'cashfree']);
     }
 
     public function test_gstin_and_bank_are_provider_backed_normalized_and_idempotent(): void
@@ -60,7 +64,7 @@ class BusinessVerificationTest extends TestCase
 
         config(['services.cashfree_secure_id.base_url' => 'https://outage.test/verification']);
         Http::fake(['outage.test/verification/bank-account/sync' => Http::response([], 503)]);
-        $this->postJson('/api/v1/kyb/bank/verify', ['bank_account' => '26291800001192', 'bank_account_confirmation' => '26291800001192', 'ifsc' => 'YESB0000001'])->assertUnprocessable();
+        $this->postJson('/api/v1/kyb/bank/verify', ['bank_account' => '26291800001192', 'bank_account_confirmation' => '26291800001192', 'ifsc' => 'YESB0000001'])->assertStatus(503)->assertJsonPath('error.code', 'PROVIDER_UNAVAILABLE');
         $this->assertSame('BANK_PENDING', BusinessVerification::where('user_id', $user->id)->value('overall_kyb_status'));
     }
 

@@ -26,6 +26,16 @@ return [
         'timeout' => env('CASHFREE_SECURE_ID_TIMEOUT', 30),
     ],
 
+    'sandbox_verification' => [
+        'enabled' => env('SANDBOX_VERIFICATION_ENABLED', true),
+        'environment' => env('SANDBOX_VERIFICATION_ENV', 'test'),
+        'api_key' => env('SANDBOX_VERIFICATION_API_KEY'),
+        'api_secret' => env('SANDBOX_VERIFICATION_API_SECRET'),
+        'base_url' => env('SANDBOX_VERIFICATION_BASE_URL'),
+        'api_version' => env('SANDBOX_VERIFICATION_API_VERSION', '1.0.0'),
+        'timeout' => env('SANDBOX_VERIFICATION_TIMEOUT', 30),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Third Party Services

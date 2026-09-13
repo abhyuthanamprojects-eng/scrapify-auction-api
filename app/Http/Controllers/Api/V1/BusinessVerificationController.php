@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Rules\IndianMobileNumber;
 use App\Models\BusinessVerification;
 use App\Services\BusinessVerificationService;
+use App\Exceptions\VerificationProviderException;
+use App\Services\Verification\VerificationProviderResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -26,13 +28,35 @@ class BusinessVerificationController extends Controller
     public function verifyGstin(Request $request, BusinessVerificationService $service): JsonResponse
     {
         $data = $request->validate(['gstin' => ['required', 'string', 'size:15'], 'business_name' => ['nullable', 'string', 'max:200']]);
-        return response()->json(['success' => true, 'data' => $service->present($service->verifyGstin($request->user(), $data['gstin'], $data['business_name'] ?? null))]);
+        try {
+            return response()->json(['success' => true, 'data' => $service->present($service->verifyGstin($request->user(), $data['gstin'], $data['business_name'] ?? null))]);
+        } catch (VerificationProviderException $exception) {
+            return $this->providerError($exception);
+        }
     }
 
     public function verifyBank(Request $request, BusinessVerificationService $service): JsonResponse
     {
         $data = $request->validate(['bank_account' => ['required', 'string', 'min:6', 'max:40', 'regex:/^\d+$/'], 'bank_account_confirmation' => ['required', 'same:bank_account'], 'ifsc' => ['required', 'string', 'size:11', 'regex:/^[A-Z]{4}0[A-Z0-9]{6}$/i'], 'name' => ['nullable', 'string', 'max:120'], 'phone' => ['nullable', 'string', 'max:20', new IndianMobileNumber()]]);
-        return response()->json(['success' => true, 'data' => $service->present($service->verifyBank($request->user(), $data['bank_account'], $data['ifsc'], $data['name'] ?? null, $data['phone'] ?? null))]);
+        try {
+            return response()->json(['success' => true, 'data' => $service->present($service->verifyBank($request->user(), $data['bank_account'], $data['ifsc'], $data['name'] ?? null, $data['phone'] ?? null))]);
+        } catch (VerificationProviderException $exception) {
+            return $this->providerError($exception);
+        }
+    }
+
+    public function verifyPan(Request $request, BusinessVerificationService $service): JsonResponse
+    {
+        $data = $request->validate([
+            'pan' => ['required', 'string', 'size:10'],
+            'name' => ['nullable', 'string', 'max:200'],
+            'date_of_birth' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+        try {
+            return response()->json(['success' => true, 'data' => $service->present($service->verifyPan($request->user(), $data['pan'], $data['name'] ?? null, $data['date_of_birth'] ?? null))]);
+        } catch (VerificationProviderException $exception) {
+            return $this->providerError($exception);
+        }
     }
 
     public function reverify(Request $request): JsonResponse
@@ -77,6 +101,33 @@ class BusinessVerificationController extends Controller
         \App\Services\AuditLogger::write('KYB_REVERIFICATION_REQUIRED', 'business_verification', (string) $id, ['reason' => $data['reason']]);
         app(\App\Services\NotificationService::class)->push($verification->user, 'KYB_REVERIFICATION_REQUIRED', 'Business reverification required', $data['reason'], ['verification_id' => $id], "kyb:{$id}:reverification");
         return response()->json(['success' => true, 'data' => app(BusinessVerificationService::class)->present($verification->fresh())]);
+    }
+
+    public function testProvider(Request $request, VerificationProviderResolver $resolver): JsonResponse
+    {
+        $data = $request->validate([
+            'verification_type' => ['required', 'in:GSTIN,KYC,BANK,PAN'],
+            'gstin' => ['required_if:verification_type,GSTIN', 'nullable', 'string', 'size:15'],
+            'business_name' => ['nullable', 'string', 'max:200'],
+            'pan' => ['required_if:verification_type,PAN,KYC', 'nullable', 'string', 'size:10'],
+            'name' => ['nullable', 'string', 'max:200'],
+            'date_of_birth' => ['nullable', 'date_format:Y-m-d'],
+            'bank_account' => ['required_if:verification_type,BANK', 'nullable', 'string', 'min:6', 'max:40'],
+            'ifsc' => ['required_if:verification_type,BANK', 'nullable', 'string', 'size:11'],
+            'phone' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        try {
+            $result = $resolver->test($data['verification_type'], $data);
+            return response()->json(['success' => true, 'data' => $result->toArray()]);
+        } catch (VerificationProviderException $exception) {
+            return $this->providerError($exception);
+        }
+    }
+
+    private function providerError(VerificationProviderException $exception): JsonResponse
+    {
+        return response()->json(['success' => false, 'message' => $exception->getMessage(), 'error' => ['code' => $exception->errorCode]], $exception->httpStatus);
     }
 
     private function adminData(BusinessVerification $v): array

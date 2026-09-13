@@ -16,6 +16,7 @@ class BusinessVerification extends Model
         'bank_account_encrypted' => 'encrypted',
         'gst_registration_date' => 'date',
         'gstin_verified_at' => 'datetime',
+        'pan_verified_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
         'verified_at' => 'datetime',

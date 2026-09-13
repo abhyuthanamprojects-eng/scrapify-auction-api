@@ -92,12 +92,14 @@ Route::prefix('v1')->group(function () {
             Route::post('admin/otp-settings/test-email', [OtpSettingsController::class, 'sendEmailTest'])->middleware('permission:otp.settings.manage');
             Route::get('admin/integration-settings', [IntegrationSettingsController::class, 'show'])->middleware('permission:platform.config.update');
             Route::put('admin/integration-settings', [IntegrationSettingsController::class, 'update'])->middleware('permission:platform.config.update');
+            Route::post('admin/integration-settings/test-verification', [BusinessVerificationController::class, 'testProvider'])->middleware('permission:platform.config.update');
         });
 
         /* Business KYB — provider calls remain backend-only. */
         Route::get('kyb/status', [BusinessVerificationController::class, 'status'])->middleware('permission:kyb.view');
         Route::get('kyb/history', [BusinessVerificationController::class, 'history'])->middleware('permission:kyb.view');
         Route::post('kyb/gstin/verify', [BusinessVerificationController::class, 'verifyGstin'])->middleware('permission:kyb.view');
+        Route::post('kyb/pan/verify', [BusinessVerificationController::class, 'verifyPan'])->middleware('permission:kyb.view');
         Route::post('kyb/bank/verify', [BusinessVerificationController::class, 'verifyBank'])->middleware('permission:kyb.view');
         Route::post('kyb/reverify', [BusinessVerificationController::class, 'reverify'])->middleware('permission:kyb.view');
         Route::get('admin/kyb', [BusinessVerificationController::class, 'adminIndex'])->middleware(['token.context:admin', 'permission:kyb.view']);

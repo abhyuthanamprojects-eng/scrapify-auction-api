@@ -21,6 +21,9 @@ class KycCrossPlatformLifecycleTest extends TestCase
         parent::setUp();
         $this->seed();
         Storage::fake('public');
+        config()->set('services.sandbox_verification.enabled', true);
+        config()->set('services.sandbox_verification.api_key', 'sandbox-key');
+        config()->set('services.sandbox_verification.api_secret', 'sandbox-secret');
         Http::fake([
             'https://api.postalpincode.in/pincode/400030' => Http::response([[
                 'Status' => 'Success',
@@ -36,6 +39,9 @@ class KycCrossPlatformLifecycleTest extends TestCase
                     'Block' => 'Mumbai',
                 ]],
             ]], 200),
+            '*test-api.sandbox.co.in/authenticate' => Http::response(['data' => ['access_token' => 'sandbox-token']], 200),
+            '*test-api.sandbox.co.in/gst/compliance/public/gstin/verify' => Http::response(['data' => ['data' => ['gstin' => '27AAACB1234N1Z5', 'status' => 'Active', 'validGstin' => true, 'legalName' => 'Aditya Birla Metal Recycling Ltd']], 'status_cd' => '1'], 200),
+            '*test-api.sandbox.co.in/bank/HDFC0000060/accounts/50200012345678/penniless-verify*' => Http::response(['code' => 200, 'transaction_id' => 'sandbox-bank-ref', 'data' => ['account_exists' => true, 'name_at_bank' => 'ADITYA BIRLA METAL RECYCLING LTD']], 200),
         ]);
     }
 

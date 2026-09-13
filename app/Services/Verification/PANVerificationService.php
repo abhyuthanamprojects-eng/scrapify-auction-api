@@ -2,11 +2,13 @@
 
 namespace App\Services\Verification;
 
+use App\Exceptions\VerificationProviderException;
+
 class PANVerificationService implements VerificationProviderInterface
 {
     public function isEnabled(): bool
     {
-        return config('services.pan.enabled', false);
+        return app(VerificationProviderResolver::class)->for('PAN')->isEnabled();
     }
 
     /**
@@ -35,27 +37,16 @@ class PANVerificationService implements VerificationProviderInterface
             ];
         }
 
-        if ($this->isEnabled()) {
-            // NSDL / UTIITSL verification gateway
-            return [
-                'status' => 'valid',
-                'message' => 'Verified via NSDL Database.',
-                'data' => [
-                    'pan' => $pan,
-                    'status' => 'Existing and Valid',
-                    'verified_at' => now()->toIso8601String(),
-                ],
-            ];
+        $provider = app(VerificationProviderResolver::class)->for('PAN');
+        if (! $provider->isEnabled() || ! $provider->isConfigured('PAN')) {
+            return ['status' => 'pending', 'message' => 'KYC provider is not configured.', 'data' => ['provider' => strtoupper($provider->key()), 'code' => 'PROVIDER_NOT_CONFIGURED']];
         }
 
-        return [
-            'status' => 'valid',
-            'message' => 'PAN format verified.',
-            'data' => [
-                'pan' => $pan,
-                'entity_type_code' => substr($pan, 3, 1),
-                'verified_at' => now()->toIso8601String(),
-            ],
-        ];
+        try {
+            $result = $provider->verifyPan($pan, $payload['name'] ?? null, $payload['date_of_birth'] ?? null);
+            return ['status' => $result->isVerified() ? 'valid' : 'invalid', 'message' => $result->isVerified() ? 'PAN verified by the active provider.' : 'PAN verification failed.', 'data' => $result->toArray()];
+        } catch (VerificationProviderException $exception) {
+            return ['status' => 'pending', 'message' => 'KYC provider is temporarily unavailable.', 'data' => ['provider' => strtoupper($provider->key()), 'code' => $exception->errorCode]];
+        }
     }
 }

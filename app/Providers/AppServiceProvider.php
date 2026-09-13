@@ -6,8 +6,6 @@ use App\Models\AccessToken;
 use App\Models\Auction;
 use App\Models\Organization;
 use App\Models\Vendor;
-use App\Contracts\BusinessVerificationProviderInterface;
-use App\Services\Verification\CashfreeSecureIdProvider;
 use App\Services\GeneralSettings;
 use App\Observers\AuditableObserver;
 use Illuminate\Support\Facades\Schema;
@@ -17,7 +15,6 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->bind(BusinessVerificationProviderInterface::class, CashfreeSecureIdProvider::class);
     }
 
     public function boot(): void

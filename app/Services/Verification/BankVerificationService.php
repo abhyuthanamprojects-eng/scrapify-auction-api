@@ -2,11 +2,13 @@
 
 namespace App\Services\Verification;
 
+use App\Exceptions\VerificationProviderException;
+
 class BankVerificationService implements VerificationProviderInterface
 {
     public function isEnabled(): bool
     {
-        return config('services.bank_verification.enabled', false);
+        return app(VerificationProviderResolver::class)->for('BANK')->isEnabled();
     }
 
     /**
@@ -36,37 +38,34 @@ class BankVerificationService implements VerificationProviderInterface
             ];
         }
 
-        if (strlen($accountNo) < 9 || strlen($accountNo) > 18) {
+        if (! preg_match('/^[A-Za-z0-9]{6,40}$/', $accountNo)) {
             return [
                 'status' => 'invalid',
-                'message' => 'Account number must be between 9 and 18 digits.',
+                'message' => 'Account number must be between 6 and 40 letters or digits.',
                 'data' => null,
             ];
         }
 
-        if ($this->isEnabled()) {
-            // Placeholder for Penny-Drop API (e.g. RazorpayX / Cashfree / Setu)
+        try {
+            $provider = app(VerificationProviderResolver::class)->for('BANK');
+            $result = $provider->verifyBankAccount(
+                $accountNo,
+                $ifsc,
+                $payload['account_holder_name'] ?? null,
+                $payload['phone'] ?? null,
+            );
+
             return [
-                'status' => 'valid',
-                'message' => 'Bank account verified via Penny Drop.',
-                'data' => [
-                    'account_number' => $accountNo,
-                    'ifsc' => $ifsc,
-                    'registered_name' => $payload['account_holder_name'] ?? '',
-                    'penny_drop_ref' => 'PND-'.rand(100000, 999999),
-                    'verified_at' => now()->toIso8601String(),
-                ],
+                'status' => $result->isVerified() ? 'valid' : 'invalid',
+                'message' => $result->isVerified() ? 'Bank account verified.' : 'Bank account could not be verified.',
+                'data' => $result->toArray() + ['account_number' => $accountNo, 'ifsc' => $ifsc],
+            ];
+        } catch (VerificationProviderException $exception) {
+            return [
+                'status' => 'pending',
+                'message' => $exception->getMessage(),
+                'data' => ['error_code' => $exception->errorCode],
             ];
         }
-
-        return [
-            'status' => 'valid',
-            'message' => 'Bank details format verified. Pending document verification.',
-            'data' => [
-                'account_number' => $accountNo,
-                'ifsc' => $ifsc,
-                'verified_at' => now()->toIso8601String(),
-            ],
-        ];
     }
 }
