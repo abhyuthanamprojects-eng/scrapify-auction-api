@@ -51,6 +51,7 @@ return [
             ...$view,
             ...$liveView, ...$liveControl,
             'organizations.create', 'organizations.update', 'organizations.submit',
+            'organizations.delete',
             'vendors.approve', 'vendors.reject', 'vendors.suspend', 'vendors.update',
             'auctions.create', 'auctions.update', 'auctions.submit',
             'auctions.approve', 'auctions.send_back', 'auctions.reject',

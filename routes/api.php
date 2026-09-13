@@ -381,6 +381,8 @@ Route::prefix('v1')->group(function () {
                 ->middleware('permission:organizations.create');
             Route::patch('organisation/users/{id}', [AdminUserController::class, 'update'])
                 ->middleware('permission:organizations.update');
+            Route::delete('organisation/users/{id}', [AdminUserController::class, 'destroy'])
+                ->middleware('permission:organizations.delete');
 
             Route::get('reports/summary', [ReportController::class, 'summary'])
                 ->middleware('permission:reports.view');

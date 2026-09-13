@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Services\AuditLogger;
 use App\Rules\IndianMobileNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -124,5 +127,40 @@ class AdminUserController extends Controller
         $user->update($attrs);
 
         return new UserResource($user->fresh(['organization', 'vendor']));
+    }
+
+    /** Permanently remove a specifically confirmed non-admin testing account. */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $user = User::with(['vendor.documents'])->where('uuid', $id)
+            ->when(ctype_digit($id), fn ($q) => $q->orWhere('id', $id))
+            ->firstOrFail();
+
+        $request->validate([
+            'confirmation' => ['required', 'in:DELETE '.$user->email],
+        ]);
+
+        abort_if($user->id === $request->user()->id, 422, 'You cannot delete your own account.');
+        abort_if($user->isAdmin(), 422, 'Admin accounts cannot be deleted from this screen.');
+
+        $deletedEmail = $user->email;
+        DB::transaction(function () use ($user): void {
+            if ($user->avatar_path) {
+                Storage::disk('public')->delete($user->avatar_path);
+            }
+            if ($user->vendor) {
+                foreach ($user->vendor->documents as $document) {
+                    if ($document->file_path) {
+                        Storage::disk('public')->delete($document->file_path);
+                    }
+                }
+                $user->vendor->delete();
+            }
+            $user->delete();
+        });
+
+        AuditLogger::write("Deleted user and owned data: {$deletedEmail}", 'User', (string) $user->id);
+
+        return response()->json(['success' => true, 'message' => 'User and all owned data were permanently deleted.']);
     }
 }
