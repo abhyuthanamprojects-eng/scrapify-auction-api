@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Otp;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -52,9 +53,32 @@ class RegistrationOtpTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('channel', 'email')
-            ->assertJsonPath('otp_length', 6)
+            ->assertJsonPath('otp_length', 4)
             ->assertJsonMissingPath('debug_code')
             ->assertJsonMissingPath('otp');
+
+        $otp = Otp::where('identifier', 'person@example.com')->latest('id')->firstOrFail();
+        $this->assertSame('email', $otp->channel);
+        $this->assertGreaterThan(10, strlen($otp->code));
+    }
+
+    public function test_repeated_otp_request_returns_a_retry_after_header(): void
+    {
+        Cache::flush();
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'otp_resend_cooldown_seconds'], ['value' => '60']);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'otp_rate_limit_per_hour'], ['value' => '10']);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'email_from_address'], ['value' => 'smtp-test@example.com']);
+        Mail::fake();
+
+        $payload = [
+            'identifier' => 'repeat@example.com',
+            'purpose' => 'register',
+        ];
+
+        $this->postJson('/api/v1/auth/request-otp', $payload)->assertOk();
+        $this->postJson('/api/v1/auth/request-otp', $payload)
+            ->assertStatus(429)
+            ->assertHeader('Retry-After', '60');
     }
 
     public function test_registration_requires_recent_mobile_and_email_verification(): void
@@ -162,10 +186,29 @@ class RegistrationOtpTest extends TestCase
 
         $this->postJson('/api/v1/auth/verify-otp', [
             'identifier' => '9876543210',
-            'code' => '123456',
+            'code' => '1234',
             'purpose' => 'register',
         ])->assertOk()
             ->assertJson(['verified' => true, 'token' => null]);
+    }
+
+    public function test_otp_length_is_fixed_at_four_digits_even_when_legacy_settings_are_longer(): void
+    {
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_otp_length'], ['value' => '6']);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'email_otp_length'], ['value' => '8']);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'email_from_address'], ['value' => 'smtp-test@example.com']);
+        Mail::fake();
+
+        $this->postJson('/api/v1/auth/request-otp', [
+            'identifier' => 'person@example.com',
+            'purpose' => 'register',
+        ])->assertOk()->assertJsonPath('otp_length', 4);
+
+        $this->postJson('/api/v1/auth/verify-otp', [
+            'identifier' => 'person@example.com',
+            'code' => '123456',
+            'purpose' => 'register',
+        ])->assertUnprocessable()->assertJsonValidationErrorFor('code');
     }
 
     public function test_admin_otp_settings_mask_and_encrypt_the_msg91_auth_key(): void

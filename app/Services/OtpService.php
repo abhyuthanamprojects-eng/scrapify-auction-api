@@ -6,9 +6,12 @@ use App\Models\Otp;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 class OtpService
 {
+    private const OTP_LENGTH = 4;
+
     public function __construct(private readonly Msg91Service $msg91) {}
 
     public function channel(string $identifier): string
@@ -18,10 +21,9 @@ class OtpService
 
     public function otpLength(string $identifier): int
     {
-        $key = $this->channel($identifier) === 'email' ? 'email_otp_length' : 'msg91_otp_length';
-        $default = $this->channel($identifier) === 'email' ? 6 : 4;
-
-        return min(8, max(4, GeneralSettings::int($key, $default)));
+        // Keep one fixed contract across SMS and email. Legacy settings must
+        // not change the generated or validated OTP length.
+        return self::OTP_LENGTH;
     }
 
     public function normalizeIdentifier(string $identifier): string
@@ -129,6 +131,10 @@ class OtpService
 
     public function verify(string $identifier, string $purpose, string $code): bool
     {
+        if (! preg_match('/^\d{'.self::OTP_LENGTH.'}$/', $code)) {
+            return false;
+        }
+
         $identifier = $this->normalizeIdentifier($identifier);
         $otp = Otp::where('identifier', $identifier)
             ->where('purpose', $purpose)
@@ -184,6 +190,7 @@ class OtpService
 
             return [
                 'success' => true,
+                'otp_length' => self::OTP_LENGTH,
                 'expires_at' => $otp->expires_at->toIso8601String(),
                 'resend_after' => max(1, GeneralSettings::int('otp_resend_cooldown_seconds', 30)),
             ];
@@ -211,27 +218,36 @@ class OtpService
         $maxResends = max(1, GeneralSettings::int('otp_max_resend_attempts', 3));
         $subject = hash('sha256', strtolower($identifier));
         $prefix = $resend ? 'resend' : 'send';
-        $cooldownKey = "otp:{$prefix}:cooldown:{$subject}";
-        if (cache()->has($cooldownKey)) {
-            abort(429, 'Too many OTP requests. Please try again later.');
+        $lock = cache()->lock("otp:{$prefix}:lock:{$subject}", 5);
+        if (! $lock->get()) {
+            throw new TooManyRequestsHttpException(5, 'Another OTP request is already being processed. Please wait a moment and try again.');
         }
 
-        $hourKey = "otp:hour:{$subject}";
-        $count = (int) cache()->get($hourKey, 0);
-        if ($count >= $perHour) {
-            abort(429, 'Too many OTP requests. Please try again later.');
-        }
-
-        if ($resend) {
-            $resendHourKey = "otp:resend:hour:{$subject}";
-            $resendCount = (int) cache()->get($resendHourKey, 0);
-            if ($resendCount >= $maxResends) {
-                abort(429, 'Maximum OTP resends reached. Please try again later.');
+        try {
+            $cooldownKey = "otp:{$prefix}:cooldown:{$subject}";
+            if (cache()->has($cooldownKey)) {
+                throw new TooManyRequestsHttpException($cooldown, 'Too many OTP requests. Please try again later.');
             }
-            cache()->put($resendHourKey, $resendCount + 1, now()->addHour());
-        }
 
-        cache()->put($hourKey, $count + 1, now()->addHour());
-        cache()->put($cooldownKey, true, now()->addSeconds($cooldown));
+            $hourKey = "otp:hour:{$subject}";
+            $count = (int) cache()->get($hourKey, 0);
+            if ($count >= $perHour) {
+                throw new TooManyRequestsHttpException(3600, 'Too many OTP requests. Please try again later.');
+            }
+
+            if ($resend) {
+                $resendHourKey = "otp:resend:hour:{$subject}";
+                $resendCount = (int) cache()->get($resendHourKey, 0);
+                if ($resendCount >= $maxResends) {
+                    throw new TooManyRequestsHttpException(3600, 'Maximum OTP resends reached. Please try again later.');
+                }
+                cache()->put($resendHourKey, $resendCount + 1, now()->addHour());
+            }
+
+            cache()->put($hourKey, $count + 1, now()->addHour());
+            cache()->put($cooldownKey, true, now()->addSeconds($cooldown));
+        } finally {
+            $lock->release();
+        }
     }
 }
