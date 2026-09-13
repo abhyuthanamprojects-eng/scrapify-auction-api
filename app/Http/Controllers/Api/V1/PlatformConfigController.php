@@ -33,6 +33,11 @@ class PlatformConfigController extends Controller
             'participant_kyb_required' => GeneralSettings::bool('participant_kyb_required', true),
             'gstin_required' => GeneralSettings::bool('gstin_required', true),
             'bank_verification_required' => GeneralSettings::bool('bank_verification_required', true),
+            'mobile_min_version' => GeneralSettings::string('mobile_min_version', '1.0.0'),
+            'mobile_latest_version' => GeneralSettings::string('mobile_latest_version', '1.0.0'),
+            'mobile_force_update' => GeneralSettings::bool('mobile_force_update', false),
+            'mobile_update_url' => GeneralSettings::string('mobile_update_url', ''),
+            'mobile_update_notes' => GeneralSettings::string('mobile_update_notes', ''),
             'business_bank_name_match_required' => GeneralSettings::bool('business_bank_name_match_required', true),
             'kyb_gst_validity_days' => GeneralSettings::int('kyb_gst_validity_days', 180),
             'kyb_bank_validity_days' => GeneralSettings::int('kyb_bank_validity_days', 365),
@@ -79,6 +84,11 @@ class PlatformConfigController extends Controller
             'kyb_auto_approve_match_score' => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'kyb_review_match_score' => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'kyb_allow_admin_override' => ['sometimes', 'boolean'],
+            'mobile_min_version' => ['sometimes', 'regex:/^\d+\.\d+\.\d+$/'],
+            'mobile_latest_version' => ['sometimes', 'regex:/^\d+\.\d+\.\d+$/'],
+            'mobile_force_update' => ['sometimes', 'boolean'],
+            'mobile_update_url' => ['sometimes', 'url', 'max:500'],
+            'mobile_update_notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
         ]);
         foreach ($data as $key => $value) {
             GeneralSetting::updateOrCreate(['key' => $key], ['value' => (string) $value]);

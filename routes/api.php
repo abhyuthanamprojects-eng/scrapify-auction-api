@@ -93,6 +93,7 @@ Route::prefix('v1')->group(function () {
             Route::get('admin/integration-settings', [IntegrationSettingsController::class, 'show'])->middleware('permission:platform.config.update');
             Route::put('admin/integration-settings', [IntegrationSettingsController::class, 'update'])->middleware('permission:platform.config.update');
             Route::post('admin/integration-settings/test-verification', [BusinessVerificationController::class, 'testProvider'])->middleware('permission:platform.config.update');
+            Route::post('admin/integration-settings/test-cashfree-payment', [IntegrationSettingsController::class, 'testCashfreePayment'])->middleware('permission:platform.config.update');
         });
 
         /* Business KYB — provider calls remain backend-only. */
@@ -164,7 +165,8 @@ Route::prefix('v1')->group(function () {
         // authorized admin review. The controller still enforces ownership or
         // an internal role, so this route must not be public-context-only.
         Route::get('vendors/{code}/documents/{id}/download', [VendorController::class, 'downloadDocument']);
-        Route::post('vendors/{code}/documents', [VendorController::class, 'uploadDocument']);
+            Route::post('vendors/{code}/documents', [VendorController::class, 'uploadDocument']);
+            Route::get('vendors/{code}/documents', [VendorController::class, 'documents']);
         Route::post('vendors/invitations', [VendorController::class, 'invite'])
             ->middleware('permission:vendors.approve');
         Route::get('vendors', [VendorController::class, 'index'])

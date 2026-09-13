@@ -527,6 +527,24 @@ class VendorController extends Controller
         ], 201);
     }
 
+    public function documents(Request $request, string $code): JsonResponse
+    {
+        $vendor = Vendor::where('code', $code)->firstOrFail();
+        $this->authorizeVendorAccess($request, $vendor);
+        return response()->json(['success' => true, 'data' => $vendor->documents()->latest('id')->get()->map(fn (VendorDocument $doc) => [
+            'id' => $doc->id,
+            'key' => $doc->doc_key,
+            'kind' => $doc->kind,
+            'name' => $doc->name ?? $doc->kind,
+            'file_name' => $doc->file_name,
+            'size_kb' => $doc->size_kb,
+            'status' => $doc->status,
+            'reason' => $doc->reason,
+            'uploaded_at' => $doc->uploaded_at?->toIso8601String(),
+            'approved_on' => $doc->approved_on?->toIso8601String(),
+        ])]);
+    }
+
     /**
      * Securely stream / download an uploaded vendor document.
      */
