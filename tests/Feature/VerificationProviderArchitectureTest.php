@@ -36,13 +36,15 @@ class VerificationProviderArchitectureTest extends TestCase
         Sanctum::actingAs($user);
         Http::fake([
             '*test-api.sandbox.co.in/authenticate' => Http::response(['data' => ['access_token' => 'sandbox-token']]),
-            '*test-api.sandbox.co.in/gst/compliance/public/gstin/verify' => Http::response(['transaction_id' => 'sandbox-gst-ref', 'data' => ['data' => ['gstin' => '29AAICP2912R1ZR', 'legalName' => 'Acme Technologies', 'status' => 'Active', 'validGstin' => true, 'stateName' => 'Maharashtra', 'stateCode' => '27'], 'status_cd' => '1']]),
+            '*test-api.sandbox.co.in/gst/compliance/public/gstin/verify' => Http::response(['transaction_id' => 'sandbox-gst-ref', 'data' => ['data' => ['gstin' => '29AAICP2912R1ZR', 'legalName' => 'Acme Technologies Private Limited', 'status' => 'Active', 'validGstin' => true, 'stateName' => 'Maharashtra', 'stateCode' => '27'], 'status_cd' => '1']]),
             '*test-api.sandbox.co.in/kyc/pan/verify' => Http::response(['transaction_id' => 'sandbox-pan-ref', 'data' => ['status' => 'valid', 'pan' => 'AAACB1234N', 'name_as_per_pan_match' => true, 'date_of_birth_match' => true]]),
         ]);
 
         $this->postJson('/api/v1/kyb/gstin/verify', ['gstin' => '29AAICP2912R1ZR'])->assertOk()
             ->assertJsonPath('data.gstin_status', 'GSTIN_VERIFIED')
-            ->assertJsonPath('data.gstin_provider', 'SANDBOX');
+            ->assertJsonPath('data.gstin_provider', 'SANDBOX')
+            ->assertJsonPath('data.entity_type', 'PRIVATE_LIMITED')
+            ->assertJsonPath('data.entity_type_label', 'Private Limited');
         $this->postJson('/api/v1/kyb/pan/verify', ['pan' => 'AAACB1234N', 'name' => 'Acme Technologies', 'date_of_birth' => '1980-01-01'])
             ->assertOk()->assertJsonPath('data.kyc_provider', 'SANDBOX')->assertJsonPath('data.pan_status', 'PAN_VERIFIED');
 

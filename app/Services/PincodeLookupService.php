@@ -21,6 +21,7 @@ class PincodeLookupService
                 $response = Http::connectTimeout(3)
                     ->timeout(5)
                     ->acceptJson()
+                    ->withUserAgent('Scrapify Auctions API/1.0 (+https://scrapifyauctions.com)')
                     ->get("https://api.postalpincode.in/pincode/{$pincode}");
 
                 if ($response->status() === 429 || $response->serverError()) {

@@ -31,6 +31,10 @@ class PincodeLookupTest extends TestCase
             ->assertJsonPath('city', 'South Delhi')
             ->assertJsonPath('state', 'Delhi')
             ->assertJsonPath('post_offices.0.name', 'Okhla Industrial Area Phase-i');
+
+        Http::assertSent(fn ($request) => $request->header('User-Agent') === [
+            'Scrapify Auctions API/1.0 (+https://scrapifyauctions.com)',
+        ]);
     }
 
     public function test_pincode_provider_connection_failure_is_controlled(): void

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\VendorResource;
+use App\Models\BusinessVerification;
 use App\Models\Category;
 use App\Models\Payment;
 use App\Models\Vendor;
@@ -338,6 +339,7 @@ class VendorController extends Controller
             'contact_name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email'],
             'phone' => ['required', 'string', 'max:20', new IndianMobileNumber()],
+            'business_type' => ['sometimes', 'nullable', 'string', 'max:60'],
             'gst_number' => ['sometimes', 'nullable', 'string', 'size:15', new Gstin()],
             'pan_number' => ['sometimes', 'nullable', 'string', 'size:10', new PanNumber()],
             'license_number' => ['sometimes', 'nullable', 'string', 'max:60'],
@@ -374,6 +376,17 @@ class VendorController extends Controller
         }
 
         $vendor->save();
+
+        // GST verification happens before this registration call. Link the
+        // existing verification record once the vendor row has been created so
+        // its provider and verification history remain attached to the vendor.
+        if ($user) {
+            BusinessVerification::where('user_id', $user->id)
+                ->where(function ($query) use ($vendor) {
+                    $query->whereNull('vendor_id')->orWhere('vendor_id', '!=', $vendor->id);
+                })
+                ->update(['vendor_id' => $vendor->id]);
+        }
 
         if ($ids = $this->categoryIds($data['material_interest'] ?? [])) {
             $vendor->materials()->sync($ids);

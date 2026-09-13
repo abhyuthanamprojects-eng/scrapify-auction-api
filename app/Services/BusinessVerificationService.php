@@ -7,6 +7,7 @@ use App\Models\BusinessVerification;
 use App\Models\GeneralSetting;
 use App\Models\User;
 use App\Models\VerificationProviderRequest;
+use App\Services\Verification\BusinessEntityClassifier;
 use App\Services\Verification\NormalizedVerificationResult;
 use App\Services\Verification\VerificationProviderResolver;
 use Illuminate\Validation\ValidationException;
@@ -20,10 +21,16 @@ final class BusinessVerificationService
     public function forUser(User $user): BusinessVerification
     {
         $vendor = $user->vendor;
-        return BusinessVerification::firstOrCreate(
+        $verification = BusinessVerification::firstOrCreate(
             ['user_id' => $user->id],
             ['vendor_id' => $vendor?->id, 'role_type' => $user->role, 'overall_kyb_status' => 'NOT_STARTED']
         );
+
+        if ($vendor && $verification->vendor_id !== $vendor->id) {
+            $verification->update(['vendor_id' => $vendor->id]);
+        }
+
+        return $verification;
     }
 
     public function present(BusinessVerification $verification): array
@@ -33,6 +40,12 @@ final class BusinessVerificationService
             : $verification->providerRequests()->latest()->get();
         $latestGstin = $latest->firstWhere('verification_type', 'GSTIN');
         $latestBank = $latest->firstWhere('verification_type', 'BANK');
+        $entityType = $verification->entity_type ?: BusinessEntityClassifier::code(
+            $verification->legal_business_name,
+            $verification->constitution_of_business,
+            $verification->taxpayer_type,
+            $verification->gstin,
+        );
 
         return [
             'id' => $verification->id,
@@ -50,6 +63,8 @@ final class BusinessVerificationService
             'legal_business_name' => $verification->legal_business_name,
             'trade_business_name' => $verification->trade_business_name,
             'constitution_of_business' => $verification->constitution_of_business,
+            'entity_type' => $entityType,
+            'entity_type_label' => BusinessEntityClassifier::label($entityType),
             'taxpayer_type' => $verification->taxpayer_type,
             'gst_registration_status' => $verification->gst_registration_status,
             'gst_registration_date' => $verification->gst_registration_date?->toDateString(),
@@ -227,7 +242,7 @@ final class BusinessVerificationService
         $data = $result->data; $active = $result->isVerified();
         $verification->update([
             'gstin' => strtoupper((string) ($data['gstin'] ?? $verification->gstin)), 'gstin_status' => $active ? 'GSTIN_VERIFIED' : 'GSTIN_FAILED', 'gstin_provider' => strtoupper($result->provider), 'gstin_reference_id' => $result->referenceId, 'gstin_verified_at' => $active ? now() : null,
-            'legal_business_name' => $data['legal_business_name'] ?? null, 'trade_business_name' => $data['trade_business_name'] ?? null, 'constitution_of_business' => $data['constitution_of_business'] ?? null, 'taxpayer_type' => $data['taxpayer_type'] ?? null, 'gst_registration_status' => $data['gst_registration_status'] ?? $result->rawStatus, 'gst_registration_date' => $data['gst_registration_date'] ?? null, 'gst_registered_address' => $data['gst_registered_address'] ?? null, 'business_activities' => $data['business_activities'] ?? [], 'last_error_code' => $active ? null : ($result->errorCode ?: 'GSTIN_INACTIVE'),
+            'legal_business_name' => $data['legal_business_name'] ?? null, 'trade_business_name' => $data['trade_business_name'] ?? null, 'constitution_of_business' => $data['constitution_of_business'] ?? null, 'entity_type' => $data['entity_type'] ?? BusinessEntityClassifier::code($data['legal_business_name'] ?? null, $data['constitution_of_business'] ?? null, $data['taxpayer_type'] ?? null, $data['gstin'] ?? $verification->gstin), 'taxpayer_type' => $data['taxpayer_type'] ?? null, 'gst_registration_status' => $data['gst_registration_status'] ?? $result->rawStatus, 'gst_registration_date' => $data['gst_registration_date'] ?? null, 'gst_registered_address' => $data['gst_registered_address'] ?? null, 'business_activities' => is_array($data['business_activities'] ?? null) ? $data['business_activities'] : (filled($data['business_activities'] ?? null) ? [(string) $data['business_activities']] : []), 'last_error_code' => $active ? null : ($result->errorCode ?: 'GSTIN_INACTIVE'),
         ]);
         $this->decide($verification->fresh());
         AuditLogger::write($active ? 'GST_VERIFIED' : 'GST_FAILED', 'business_verification', (string) $verification->id, ['provider' => strtoupper($result->provider), 'provider_reference' => $result->referenceId, 'gst_status' => $result->rawStatus]);

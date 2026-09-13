@@ -60,17 +60,22 @@ final class CashfreeSecureIdProvider implements BusinessVerificationProviderInte
     {
         $response = $this->request('/gstin', array_filter(['GSTIN' => $gstin, 'business_name' => $businessName]));
         $active = (bool) ($response['valid'] ?? false) && strtoupper((string) ($response['gst_in_status'] ?? '')) === 'ACTIVE';
-        return new NormalizedVerificationResult($active ? 'VERIFIED' : 'FAILED', $this->key(), $this->reference($response), [
+        return new NormalizedVerificationResult($active ? 'VERIFIED' : 'FAILED', $this->key(), $this->reference($response), array_merge([
             'gstin' => strtoupper((string) ($response['GSTIN'] ?? $gstin)),
             'legal_business_name' => $response['legal_name_of_business'] ?? null,
             'trade_business_name' => $response['trade_name_of_business'] ?? null,
-            'constitution_of_business' => $response['constitution_of_business'] ?? null,
-            'taxpayer_type' => $response['taxpayer_type'] ?? null,
+            'constitution_of_business' => $response['constitution_of_business'] ?? $response['constitutionOfBusiness'] ?? null,
+            'taxpayer_type' => $response['taxpayer_type'] ?? $response['taxpayerType'] ?? null,
             'gst_registration_status' => $response['gst_in_status'] ?? null,
             'gst_registration_date' => $response['date_of_registration'] ?? null,
             'gst_registered_address' => $response['principal_place_split_address'] ?? ['address' => $response['principal_place_address'] ?? null],
             'business_activities' => $response['nature_of_business_activities'] ?? [],
-        ], (string) ($response['gst_in_status'] ?? ''), $active ? null : 'GSTIN_INACTIVE', 'GSTIN');
+        ], BusinessEntityClassifier::details(
+            $response['legal_name_of_business'] ?? null,
+            $response['constitution_of_business'] ?? $response['constitutionOfBusiness'] ?? null,
+            $response['taxpayer_type'] ?? $response['taxpayerType'] ?? null,
+            $response['GSTIN'] ?? $gstin,
+        )), (string) ($response['gst_in_status'] ?? ''), $active ? null : 'GSTIN_INACTIVE', 'GSTIN');
     }
 
     public function verifyPan(string $pan, ?string $name = null, ?string $dateOfBirth = null): NormalizedVerificationResult
