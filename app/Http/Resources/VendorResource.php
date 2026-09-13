@@ -88,6 +88,7 @@ class VendorResource extends JsonResource
                 'kind' => $d->kind,
                 'name' => $d->name ?? $d->kind,
                 'file_name' => $d->file_name,
+                'available' => $d->file_path ? \Illuminate\Support\Facades\Storage::disk('public')->exists($d->file_path) : false,
                 'size_kb' => $d->size_kb,
                 'required' => $d->required,
                 'status' => $d->status,

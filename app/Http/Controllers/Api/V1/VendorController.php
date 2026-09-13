@@ -537,6 +537,7 @@ class VendorController extends Controller
             'kind' => $doc->kind,
             'name' => $doc->name ?? $doc->kind,
             'file_name' => $doc->file_name,
+            'available' => $doc->file_path ? Storage::disk('public')->exists($doc->file_path) : false,
             'size_kb' => $doc->size_kb,
             'status' => $doc->status,
             'reason' => $doc->reason,
