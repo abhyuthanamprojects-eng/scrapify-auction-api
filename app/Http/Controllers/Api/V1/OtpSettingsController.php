@@ -138,6 +138,13 @@ class OtpSettingsController extends Controller
             return response()->json(['message' => 'MSG91 OTP is disabled.', 'error' => ['code' => 'OTP_PROVIDER_DISABLED']], 422);
         }
 
+        if (! $msg91->isConfigured()) {
+            return response()->json([
+                'message' => 'MSG91 is not configured. Save the Auth Key, OTP Template ID, Sender ID, and Country Code first.',
+                'error' => ['code' => 'OTP_PROVIDER_NOT_CONFIGURED'],
+            ], 422);
+        }
+
         $result = $msg91->sendOtp($data['phone']);
         AuditLogger::write('Tested OTP provider', 'GeneralSetting', 'msg91', [
             'success' => $result['success'],
@@ -166,6 +173,34 @@ class OtpSettingsController extends Controller
                 'message' => 'Email OTP is disabled.',
                 'error' => ['code' => 'EMAIL_PROVIDER_DISABLED'],
             ], 422);
+        }
+
+        if (app()->environment('production')) {
+            $mailer = strtolower(trim(GeneralSettings::string('mail_mailer', (string) config('mail.default', 'smtp'))));
+            $host = trim(GeneralSettings::string('mail_host', (string) config('mail.mailers.smtp.host', '')));
+            $username = trim((string) GeneralSettings::secret('mail_username', config('mail.mailers.smtp.username')));
+            $password = trim((string) GeneralSettings::secret('mail_password', config('mail.mailers.smtp.password')));
+
+            if ($mailer !== 'smtp') {
+                return response()->json([
+                    'message' => 'Production email delivery is not using SMTP. Select SMTP and save the Brevo settings.',
+                    'error' => ['code' => 'EMAIL_SMTP_NOT_ENABLED'],
+                ], 422);
+            }
+
+            if ($host === '' || in_array(strtolower($host), ['mailpit', 'localhost', '127.0.0.1'], true)) {
+                return response()->json([
+                    'message' => 'Production is still using the local Mailpit SMTP host. Set SMTP Host to smtp-relay.brevo.com and save it.',
+                    'error' => ['code' => 'EMAIL_SMTP_LOCAL_HOST'],
+                ], 422);
+            }
+
+            if ($username === '' || $password === '') {
+                return response()->json([
+                    'message' => 'Brevo SMTP credentials are missing. Enter the Brevo SMTP login and SMTP key, then save the settings.',
+                    'error' => ['code' => 'EMAIL_SMTP_CREDENTIALS_MISSING'],
+                ], 422);
+            }
         }
 
         // This is an admin-only delivery check. Keep it separate from the
