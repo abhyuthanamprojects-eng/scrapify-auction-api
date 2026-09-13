@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\GeneralSetting;
+use App\Models\Otp;
 use App\Rules\IndianMobileNumber;
 use App\Services\AuditLogger;
 use App\Services\GeneralSettings;
@@ -15,6 +16,54 @@ use Illuminate\Support\Facades\Crypt;
 
 class OtpSettingsController extends Controller
 {
+    public function history(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'identifier' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'channel' => ['sometimes', 'nullable', 'in:sms,email'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        $query = Otp::query()
+            ->where('created_at', '>=', now()->subDays(90))
+            ->latest('created_at')
+            ->latest('id');
+
+        if (filled($data['identifier'] ?? null)) {
+            $identifier = trim((string) $data['identifier']);
+            $query->where('identifier', 'like', '%'.$identifier.'%');
+        }
+
+        if (filled($data['channel'] ?? null)) {
+            $query->where('channel', $data['channel']);
+        }
+
+        $page = $query->paginate((int) ($data['per_page'] ?? 50));
+
+        return response()->json([
+            'data' => collect($page->items())->map(fn (Otp $otp) => [
+                'id' => $otp->id,
+                'identifier' => $this->maskIdentifier($otp->identifier),
+                'channel' => $otp->channel,
+                'purpose' => $otp->purpose,
+                'status' => $otp->consumed_at !== null
+                    ? 'used'
+                    : ($otp->expires_at?->isPast() ? 'expired' : 'active'),
+                'attempts' => $otp->attempts,
+                'created_at' => $otp->created_at?->toIso8601String(),
+                'expires_at' => $otp->expires_at?->toIso8601String(),
+                'consumed_at' => $otp->consumed_at?->toIso8601String(),
+            ])->values(),
+            'meta' => [
+                'current_page' => $page->currentPage(),
+                'last_page' => $page->lastPage(),
+                'per_page' => $page->perPage(),
+                'total' => $page->total(),
+                'retention_days' => 90,
+            ],
+        ]);
+    }
+
     public function show(Msg91Service $msg91): JsonResponse
     {
         $authKey = GeneralSettings::secret('msg91_auth_key', config('services.msg91.auth_key'));
@@ -119,7 +168,10 @@ class OtpSettingsController extends Controller
             ], 422);
         }
 
-        $result = $otpService->request($data['email'], 'verify');
+        // This is an admin-only delivery check. Keep it separate from the
+        // public registration OTP purpose and do not consume a customer's
+        // cooldown or hourly OTP quota while testing SMTP.
+        $result = $otpService->request($data['email'], 'admin_email_test', false);
         AuditLogger::write('Tested email OTP provider', 'GeneralSetting', 'smtp', [
             'success' => $result['success'],
             'code' => $result['code'] ?? null,
@@ -147,5 +199,17 @@ class OtpSettingsController extends Controller
 
         $length = strlen($secret);
         return $length <= 4 ? str_repeat('*', $length) : substr($secret, 0, 2) . str_repeat('*', max(4, $length - 4)) . substr($secret, -2);
+    }
+
+    private function maskIdentifier(string $identifier): string
+    {
+        if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+            [$local, $domain] = explode('@', $identifier, 2);
+            $visible = strlen($local) <= 2 ? substr($local, 0, 1) : substr($local, 0, 2);
+            return $visible.str_repeat('*', max(2, strlen($local) - strlen($visible))).'@'.$domain;
+        }
+
+        $digits = preg_replace('/\D+/', '', $identifier) ?? $identifier;
+        return strlen($digits) > 4 ? str_repeat('*', strlen($digits) - 4).substr($digits, -4) : '****';
     }
 }

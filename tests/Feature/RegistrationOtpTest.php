@@ -200,5 +200,31 @@ class RegistrationOtpTest extends TestCase
             ->assertJsonPath('destination', 'smtp-test@example.com')
             ->assertJsonMissingPath('debug_code')
             ->assertJsonMissingPath('otp');
+
+        $this->postJson('/api/v1/admin/otp-settings/test-email', [
+            'email' => 'smtp-test@example.com',
+        ])->assertOk();
+    }
+
+    public function test_admin_otp_history_returns_metadata_without_exposing_the_code(): void
+    {
+        Otp::create([
+            'identifier' => 'history@example.com',
+            'channel' => 'email',
+            'purpose' => 'register',
+            'code' => 'hashed-code',
+            'attempts' => 1,
+            'expires_at' => now()->addMinutes(5),
+        ]);
+        $admin = User::factory()->create(['role' => 'admin', 'status' => 'active']);
+        Sanctum::actingAs($admin, ['admin:panel']);
+
+        $this->getJson('/api/v1/admin/otp-history?identifier=history%40example.com&channel=email')
+            ->assertOk()
+            ->assertJsonPath('data.0.channel', 'email')
+            ->assertJsonPath('data.0.status', 'active')
+            ->assertJsonPath('data.0.attempts', 1)
+            ->assertJsonPath('meta.retention_days', 90)
+            ->assertJsonMissingPath('data.0.code');
     }
 }
