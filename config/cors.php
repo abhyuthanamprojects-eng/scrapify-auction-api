@@ -33,7 +33,10 @@ return [
 
     'exposed_headers' => [],
 
-    'max_age' => 0,
+    // Cache successful browser preflight responses so every JSON request does
+    // not create another OPTIONS request that can be counted by the hosting
+    // edge's rate limiter. This does not cache the actual API response.
+    'max_age' => 86400,
 
     'supports_credentials' => false,
 

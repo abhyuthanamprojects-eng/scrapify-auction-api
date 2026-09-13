@@ -16,6 +16,20 @@ class RegistrationOtpTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_cors_preflight_is_successful_and_cached_for_auth_requests(): void
+    {
+        $response = $this->call('OPTIONS', '/api/v1/auth/register', [], [], [], [
+            'HTTP_ORIGIN' => 'http://localhost:5173',
+            'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'POST',
+            'HTTP_ACCESS_CONTROL_REQUEST_HEADERS' => 'content-type,accept',
+        ]);
+
+        $response->assertNoContent()
+            ->assertHeader('Access-Control-Allow-Origin', 'http://localhost:5173')
+            ->assertHeader('Access-Control-Allow-Methods', 'POST')
+            ->assertHeader('Access-Control-Max-Age', '86400');
+    }
+
     public function test_request_otp_uses_sms_provider_and_never_returns_a_debug_code(): void
     {
         config([
