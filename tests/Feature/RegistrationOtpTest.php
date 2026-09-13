@@ -185,4 +185,20 @@ class RegistrationOtpTest extends TestCase
         $this->assertNotSame('secret-auth-key', $stored);
         $this->assertSame('secret-auth-key', Crypt::decryptString($stored));
     }
+
+    public function test_admin_can_send_a_test_email_otp_without_exposing_the_code(): void
+    {
+        Mail::fake();
+        $admin = User::factory()->create(['role' => 'admin', 'status' => 'active']);
+        Sanctum::actingAs($admin, ['admin:panel']);
+
+        $response = $this->postJson('/api/v1/admin/otp-settings/test-email', [
+            'email' => 'smtp-test@example.com',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('destination', 'smtp-test@example.com')
+            ->assertJsonMissingPath('debug_code')
+            ->assertJsonMissingPath('otp');
+    }
 }

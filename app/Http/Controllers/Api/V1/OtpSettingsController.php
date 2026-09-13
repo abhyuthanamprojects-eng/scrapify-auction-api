@@ -8,6 +8,7 @@ use App\Rules\IndianMobileNumber;
 use App\Services\AuditLogger;
 use App\Services\GeneralSettings;
 use App\Services\Msg91Service;
+use App\Services\OtpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -102,6 +103,39 @@ class OtpSettingsController extends Controller
             'message' => 'Test OTP request accepted by MSG91. Delivery may take a moment.',
             'provider_request_id' => $result['request_id'] ?? null,
             'provider_message' => $result['provider_message'] ?? null,
+        ]);
+    }
+
+    public function sendEmailTest(Request $request, OtpService $otpService): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+
+        if (! GeneralSettings::bool('email_enabled', true)) {
+            return response()->json([
+                'message' => 'Email OTP is disabled.',
+                'error' => ['code' => 'EMAIL_PROVIDER_DISABLED'],
+            ], 422);
+        }
+
+        $result = $otpService->request($data['email'], 'verify');
+        AuditLogger::write('Tested email OTP provider', 'GeneralSetting', 'smtp', [
+            'success' => $result['success'],
+            'code' => $result['code'] ?? null,
+        ]);
+
+        if (! $result['success']) {
+            return response()->json([
+                'message' => $result['message'],
+                'error' => ['code' => $result['code'] ?? 'EMAIL_PROVIDER_ERROR'],
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => 'Test email OTP sent successfully. Check the inbox and spam folder.',
+            'destination' => $data['email'],
+            'expires_at' => $result['expires_at'],
         ]);
     }
 

@@ -88,6 +88,7 @@ Route::prefix('v1')->group(function () {
             Route::get('admin/otp-settings', [OtpSettingsController::class, 'show'])->middleware('permission:otp.settings.manage');
             Route::put('admin/otp-settings', [OtpSettingsController::class, 'update'])->middleware('permission:otp.settings.manage');
             Route::post('admin/otp-settings/test', [OtpSettingsController::class, 'sendTest'])->middleware('permission:otp.settings.manage');
+            Route::post('admin/otp-settings/test-email', [OtpSettingsController::class, 'sendEmailTest'])->middleware('permission:otp.settings.manage');
             Route::get('admin/integration-settings', [IntegrationSettingsController::class, 'show'])->middleware('permission:platform.config.update');
             Route::put('admin/integration-settings', [IntegrationSettingsController::class, 'update'])->middleware('permission:platform.config.update');
         });
