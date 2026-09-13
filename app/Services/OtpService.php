@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Otp;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class OtpService
@@ -96,7 +97,12 @@ class OtpService
                         $message->from($from, $name);
                     }
                 });
-            } catch (\Throwable) {
+            } catch (\Throwable $exception) {
+                Log::error('Email OTP delivery failed', [
+                    'exception' => $exception::class,
+                    'message' => substr($exception->getMessage(), 0, 500),
+                    'identifier_hash' => hash('sha256', $identifier),
+                ]);
                 return ['success' => false, 'code' => 'EMAIL_PROVIDER_UNAVAILABLE', 'message' => 'We could not send the email OTP right now. Please try again.'];
             }
             $storedCode = Hash::make($code);
