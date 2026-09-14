@@ -46,6 +46,26 @@ class Auction extends Model
         return $this->belongsTo(Category::class);
     }
 
+    public function subcategory(): BelongsTo
+    {
+        return $this->belongsTo(Category::class, 'subcategory_id');
+    }
+
+    public function template(): BelongsTo
+    {
+        return $this->belongsTo(AuctionTemplate::class, 'template_id');
+    }
+
+    public function templateUploads(): HasMany
+    {
+        return $this->hasMany(AuctionTemplateUpload::class)->orderByDesc('submission_version');
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(AuctionItem::class);
+    }
+
     public function organization(): BelongsTo
     {
         return $this->belongsTo(Organization::class);

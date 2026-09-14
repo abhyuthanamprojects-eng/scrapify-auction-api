@@ -4,17 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Lot extends Model
+class AuctionItem extends Model
 {
     protected $guarded = [];
 
     protected $casts = [
-        'reserve_price' => 'decimal:2',
-        'current_bid' => 'decimal:2',
-        'final_price' => 'decimal:2',
+        'quantity' => 'decimal:4',
         'reference_value' => 'decimal:2',
+        'reserve_value' => 'decimal:2',
         'attributes' => 'array',
     ];
 
@@ -23,13 +21,13 @@ class Lot extends Model
         return $this->belongsTo(Auction::class);
     }
 
-    public function bids(): HasMany
+    public function lot(): BelongsTo
     {
-        return $this->hasMany(Bid::class);
+        return $this->belongsTo(Lot::class);
     }
 
-    public function items(): HasMany
+    public function upload(): BelongsTo
     {
-        return $this->hasMany(AuctionItem::class);
+        return $this->belongsTo(AuctionTemplateUpload::class, 'upload_id');
     }
 }

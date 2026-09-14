@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\V1\TokenController;
 use App\Http\Controllers\Api\V1\VendorController;
 use App\Http\Controllers\Api\V1\WalletController;
 use App\Http\Controllers\Api\V1\WatchlistController;
+use App\Http\Controllers\Api\V1\AuctionTemplateController;
 use App\Http\Controllers\Api\V1\BusinessVerificationController;
 use Illuminate\Support\Facades\Route;
 
@@ -60,6 +61,8 @@ Route::prefix('v1')->group(function () {
     // the anonymous "Interested" click all predate registration.
     Route::get('pincode/{pincode}', [PincodeController::class, 'lookup']);
     Route::get('categories', [CategoryController::class, 'index']);
+    Route::get('categories/{categoryId}/auction-template', [AuctionTemplateController::class, 'forCategory']);
+    Route::get('auction-templates/{id}/download', [AuctionTemplateController::class, 'download']);
     Route::get('platform-config', [PlatformConfigController::class, 'show']);
     Route::get('auctions', [AuctionController::class, 'index']);
     Route::get('auctions/{code}', [AuctionController::class, 'show']);
@@ -228,6 +231,45 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:settlement.complete');
         Route::post('auctions/{code}/cancel', [AuctionController::class, 'cancel'])
             ->middleware('permission:auctions.close');
+
+        /* auction templates — seller upload/import */
+        Route::post('auctions/{code}/template-upload', [AuctionTemplateController::class, 'uploadTemplate'])
+            ->middleware(['permission:auctions.create', 'kyc.verified']);
+        Route::post('auctions/{code}/template-upload/{uploadId}/confirm', [AuctionTemplateController::class, 'confirmImport'])
+            ->middleware(['permission:auctions.create', 'kyc.verified']);
+        Route::get('auctions/{code}/template-upload/{uploadId}', [AuctionTemplateController::class, 'uploadValidationResult']);
+        Route::get('auctions/{code}/template-review', [AuctionTemplateController::class, 'adminTemplateReview'])
+            ->middleware('permission:auctions.approve');
+        Route::get('auctions/{code}/template-upload/{uploadId}/download', [AuctionTemplateController::class, 'adminDownloadSource'])
+            ->middleware('permission:auctions.approve');
+        Route::get('auctions/{code}/parsed-items', [AuctionTemplateController::class, 'adminParsedItems'])
+            ->middleware('permission:auctions.approve');
+
+        /* admin category management */
+        Route::post('categories', [CategoryController::class, 'store'])
+            ->middleware('permission:auctions.approve');
+        Route::get('categories/{id}/show', [CategoryController::class, 'show'])
+            ->middleware('permission:auctions.approve');
+        Route::patch('categories/{id}', [CategoryController::class, 'update'])
+            ->middleware('permission:auctions.approve');
+        Route::delete('categories/{id}', [CategoryController::class, 'destroy'])
+            ->middleware('permission:auctions.approve');
+
+        /* admin template management */
+        Route::get('auction-templates', [AuctionTemplateController::class, 'index'])
+            ->middleware('permission:auctions.approve');
+        Route::get('auction-templates/{id}', [AuctionTemplateController::class, 'show'])
+            ->middleware('permission:auctions.approve');
+        Route::post('auction-templates', [AuctionTemplateController::class, 'store'])
+            ->middleware('permission:auctions.approve');
+        Route::patch('auction-templates/{id}', [AuctionTemplateController::class, 'update'])
+            ->middleware('permission:auctions.approve');
+        Route::post('auction-templates/{id}/activate', [AuctionTemplateController::class, 'activate'])
+            ->middleware('permission:auctions.approve');
+        Route::post('auction-templates/{id}/deactivate', [AuctionTemplateController::class, 'deactivate'])
+            ->middleware('permission:auctions.approve');
+        Route::post('auction-templates/{id}/new-version', [AuctionTemplateController::class, 'newVersion'])
+            ->middleware('permission:auctions.approve');
 
         /* lots, nested under a lot-wise auction */
         Route::post('auctions/{code}/lots', [LotController::class, 'store'])

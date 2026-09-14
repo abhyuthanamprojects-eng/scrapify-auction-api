@@ -982,6 +982,7 @@ class AuctionController extends Controller
             'warehouse_details.contact' => ['sometimes', 'nullable', 'string', 'max:120'],
             'location' => ['sometimes', 'nullable', 'string', 'max:180'],
             'category' => ['sometimes', 'nullable', 'string'],
+            'subcategory_id' => ['sometimes', 'nullable', 'integer', 'exists:categories,id'],
             'lot_type' => ['sometimes', Rule::in(['single', 'lot_wise'])],
             'direction' => ['sometimes', Rule::in(['forward', 'reverse'])],
             'material_type' => ['sometimes', 'nullable', 'string', 'max:180'],
@@ -1019,7 +1020,11 @@ class AuctionController extends Controller
 
     private function attributes(array $data, bool $partial = false): array
     {
-        $attrs = collect($data)->except(['sub_lots', 'photos', 'category', 'organization_code', 'status'])->all();
+        $attrs = collect($data)->except(['sub_lots', 'photos', 'category', 'organization_code', 'status', 'subcategory_id'])->all();
+
+        if (array_key_exists('subcategory_id', $data) && $data['subcategory_id']) {
+            $attrs['subcategory_id'] = $data['subcategory_id'];
+        }
 
         if (array_key_exists('category', $data) && $data['category']) {
             $attrs['category_id'] = Category::where('slug', $data['category'])
