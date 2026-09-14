@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Services\AuditLogger;
 use App\Rules\IndianMobileNumber;
 use Illuminate\Http\JsonResponse;
@@ -81,6 +82,22 @@ class AdminUserController extends Controller
             'role' => ['required', Rule::in(User::ROLES)],
             'organization_code' => ['sometimes', 'nullable', 'string', 'exists:organizations,code'],
             'status' => ['sometimes', Rule::in(['active', 'inactive', 'suspended'])],
+            'business_name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'trade_name' => ['sometimes', 'nullable', 'string', 'max:180'],
+            'business_type' => ['sometimes', 'nullable', 'string', 'max:60'],
+            'contact_person' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'category' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'years_in_business' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'address_line1' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'city' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'state' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'pincode' => ['sometimes', 'nullable', 'string', 'size:6'],
+            'gst_number' => ['sometimes', 'nullable', 'string', 'max:15'],
+            'pan_number' => ['sometimes', 'nullable', 'string', 'max:10'],
+            'bank_name' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'account_holder_name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'account_number' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'ifsc_code' => ['sometimes', 'nullable', 'string', 'max:20'],
         ]);
 
         $orgId = null;
@@ -88,15 +105,53 @@ class AdminUserController extends Controller
             $orgId = \App\Models\Organization::where('code', $orgCode)->value('id');
         }
 
-        $user = User::create([
-            'name' => $data['name'],
-            'email' => $data['email'],
-            'phone' => $data['phone'] ?? null,
-            'password' => $data['password'],
-            'role' => $data['role'],
-            'organization_id' => $orgId,
-            'status' => $data['status'] ?? 'active',
-        ]);
+        $user = DB::transaction(function () use ($data, $orgId): User {
+            $user = User::create([
+                'name' => $data['name'],
+                'email' => $data['email'],
+                'phone' => $data['phone'] ?? null,
+                'password' => $data['password'],
+                'role' => $data['role'],
+                'organization_id' => $orgId,
+                'status' => $data['status'] ?? 'active',
+                'email_verified_at' => now(),
+                'phone_verified_at' => filled($data['phone'] ?? null) ? now() : null,
+            ]);
+
+            // A buyer/seller is also a vendor record. Without this record the
+            // account can authenticate but is invisible to the Customers page.
+            if (in_array($user->role, ['buyer', 'seller'], true)) {
+                $city = trim((string) ($data['city'] ?? ''));
+                $state = trim((string) ($data['state'] ?? ''));
+                $location = trim(implode(', ', array_filter([$city, $state])));
+                $vendor = Vendor::create([
+                    'user_id' => $user->id,
+                    'company_name' => $data['business_name'] ?? $user->name,
+                    'trade_name' => $data['trade_name'] ?? null,
+                    'business_type' => $data['business_type'] ?? null,
+                    'contact_name' => $data['contact_person'] ?? $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone ?? '',
+                    'location' => $location ?: null,
+                    'address' => $data['address_line1'] ?? null,
+                    'address_line1' => $data['address_line1'] ?? null,
+                    'city' => $city ?: null,
+                    'state' => $state ?: null,
+                    'pincode' => $data['pincode'] ?? null,
+                    'gst_number' => $data['gst_number'] ?? null,
+                    'pan_number' => $data['pan_number'] ?? null,
+                    'bank_name' => $data['bank_name'] ?? null,
+                    'account_holder_name' => $data['account_holder_name'] ?? null,
+                    'account_number' => $data['account_number'] ?? null,
+                    'ifsc_code' => $data['ifsc_code'] ?? null,
+                    'status' => 'pending',
+                    'registration_step' => 5,
+                ]);
+                $user->update(['vendor_id' => $vendor->id]);
+            }
+
+            return $user;
+        });
 
         return (new UserResource($user->load(['organization', 'vendor'])))
             ->response()
