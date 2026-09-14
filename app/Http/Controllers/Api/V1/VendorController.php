@@ -7,6 +7,7 @@ use App\Http\Resources\VendorResource;
 use App\Models\BusinessVerification;
 use App\Models\Category;
 use App\Models\Payment;
+use App\Models\RegistrationPromotion;
 use App\Models\Vendor;
 use App\Models\VendorDocument;
 use App\Models\VendorInvitation;
@@ -25,6 +26,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use App\Services\RegistrationPricingService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -599,29 +601,58 @@ class VendorController extends Controller
             'method' => ['required', Rule::in(['RTGS', 'NEFT', 'UPI'])],
             'reference' => ['required', 'string', 'max:60', 'unique:payments,reference'],
             'amount' => ['sometimes', 'numeric'],
+            'promo_code' => ['sometimes', 'nullable', 'string', 'max:40'],
         ]);
 
         $vendor = Vendor::where('code', $code)->firstOrFail();
         $this->authorizeVendorAccess($request, $vendor);
+        [$payment, $pricing] = DB::transaction(function () use ($data, $vendor) {
+            $pricingService = app(RegistrationPricingService::class);
+            $pricing = $pricingService->quoteForVendor($vendor, $data['promo_code'] ?? null);
 
-        $payment = Payment::create([
-            'reference' => $data['reference'],
-            'payable_type' => Vendor::class,
-            'payable_id' => $vendor->id,
-            'amount' => (float) config('scrapify.vendor_registration_fee', 5000),
-            'method' => $data['method'],
-            'status' => 'pending',
-            'meta' => ['purpose' => 'vendor_registration'],
-        ]);
+            if ($pricing['promo_code']) {
+                $promotion = RegistrationPromotion::query()
+                    ->where('code', $pricing['promo_code'])
+                    ->lockForUpdate()
+                    ->first();
+                if (! $promotion || ($promotion->max_redemptions !== null && $promotion->redemption_count >= $promotion->max_redemptions)) {
+                    $pricing = $pricingService->quoteForVendor($vendor, $pricing['promo_code']);
+                }
+            }
 
-        $vendor->update([
-            'registration_step' => 4,
-            'registration_payment_method' => $data['method'],
-            'registration_payment_ref' => $data['reference'],
-            'registration_payment_status' => 'pending',
-        ]);
+            $payment = Payment::create([
+                'reference' => $data['reference'],
+                'payable_type' => Vendor::class,
+                'payable_id' => $vendor->id,
+                'amount' => $pricing['payable_amount'],
+                'method' => $data['method'],
+                'status' => 'pending',
+                'meta' => ['purpose' => 'vendor_registration', 'base_amount' => $pricing['base_amount'], 'discount_amount' => $pricing['discount_amount'], 'promo_code' => $pricing['promo_code']],
+            ]);
+
+            if ($pricing['promo_code']) {
+                RegistrationPromotion::where('code', $pricing['promo_code'])->increment('redemption_count');
+            }
+
+            $vendor->update([
+                'registration_step' => 4,
+                'registration_payment_method' => $data['method'],
+                'registration_payment_ref' => $data['reference'],
+                'registration_payment_status' => 'pending',
+            ]);
+
+            return [$payment, $pricing];
+        });
 
         return response()->json(['payment' => $payment, 'vendor' => new VendorResource($vendor)], 201);
+    }
+
+    public function quoteRegistrationPayment(Request $request, string $code): JsonResponse
+    {
+        $vendor = Vendor::where('code', $code)->firstOrFail();
+        $this->authorizeVendorAccess($request, $vendor);
+        $data = $request->validate(['promo_code' => ['sometimes', 'nullable', 'string', 'max:40']]);
+        return response()->json(['pricing' => app(RegistrationPricingService::class)->quoteForVendor($vendor, $data['promo_code'] ?? null)]);
     }
 
     public function approve(Request $request, string $code): VendorResource

@@ -19,6 +19,12 @@ final class GeneralSettings
         return $value === null ? $fallback : max(0, (int) $value);
     }
 
+    public static function decimal(string $key, float $fallback): float
+    {
+        $value = GeneralSetting::query()->where('key', $key)->value('value');
+        return $value === null ? $fallback : max(0, (float) $value);
+    }
+
     public static function bool(string $key, bool $fallback): bool
     {
         $value = GeneralSetting::query()->where('key', $key)->value('value');

@@ -13,7 +13,7 @@ class PlatformConfigController extends Controller
     public function show(): JsonResponse
     {
         return response()->json([
-            'vendor_registration_fee' => (float) config('scrapify.vendor_registration_fee'),
+            'vendor_registration_fee' => GeneralSettings::decimal('vendor_registration_fee', (float) config('scrapify.vendor_registration_fee')),
             'currency' => 'INR',
             'auction_edit_lock_hours' => GeneralSettings::int('auction_edit_lock_hours', 3),
             'emd_percentage' => GeneralSettings::int('emd_percentage', 10),
@@ -60,6 +60,7 @@ class PlatformConfigController extends Controller
     public function update(Request $request): JsonResponse
     {
         $data = $request->validate([
+            'vendor_registration_fee' => ['sometimes', 'numeric', 'min:0', 'max:100000000'],
             'auction_edit_lock_hours' => ['required', 'integer', 'min:0', 'max:168'],
             'emd_percentage' => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'minimum_participants' => ['sometimes', 'integer', 'min:1', 'max:1000'],

@@ -29,6 +29,7 @@ use App\Http\Controllers\Api\V1\RfxController;
 use App\Http\Controllers\Api\V1\RiskController;
 use App\Http\Controllers\Api\V1\TokenController;
 use App\Http\Controllers\Api\V1\VendorController;
+use App\Http\Controllers\Api\V1\RegistrationPromotionController;
 use App\Http\Controllers\Api\V1\WalletController;
 use App\Http\Controllers\Api\V1\WatchlistController;
 use App\Http\Controllers\Api\V1\AuctionTemplateController;
@@ -97,6 +98,10 @@ Route::prefix('v1')->group(function () {
             Route::put('admin/integration-settings', [IntegrationSettingsController::class, 'update'])->middleware('permission:platform.config.update');
             Route::post('admin/integration-settings/test-verification', [BusinessVerificationController::class, 'testProvider'])->middleware('permission:platform.config.update');
             Route::post('admin/integration-settings/test-cashfree-payment', [IntegrationSettingsController::class, 'testCashfreePayment'])->middleware('permission:platform.config.update');
+            Route::get('admin/registration-promotions', [RegistrationPromotionController::class, 'index'])->middleware('permission:platform.config.update');
+            Route::post('admin/registration-promotions', [RegistrationPromotionController::class, 'store'])->middleware('permission:platform.config.update');
+            Route::patch('admin/registration-promotions/{promotion}', [RegistrationPromotionController::class, 'update'])->middleware('permission:platform.config.update');
+            Route::delete('admin/registration-promotions/{promotion}', [RegistrationPromotionController::class, 'destroy'])->middleware('permission:platform.config.update');
         });
 
         /* Business KYB — provider calls remain backend-only. */
@@ -163,6 +168,7 @@ Route::prefix('v1')->group(function () {
             Route::post('vendors/{code}/resubmit-kyc', [VendorController::class, 'resubmitKyc']);
             Route::get('vendors/{code}/kyc-status', [VendorController::class, 'kycStatus']);
             Route::post('vendors/{code}/registration-payment', [VendorController::class, 'recordRegistrationPayment']);
+            Route::post('vendors/{code}/registration-payment/quote', [VendorController::class, 'quoteRegistrationPayment']);
         });
         // Document access supports both a vendor's public workspace and
         // authorized admin review. The controller still enforces ownership or
