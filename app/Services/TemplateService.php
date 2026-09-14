@@ -161,7 +161,9 @@ class TemplateService
         $fileHash = hash_file('sha256', $tempPath);
 
         try {
-            $spreadsheet = IOFactory::load($tempPath);
+            $reader = IOFactory::createReaderForFile($tempPath);
+            $reader->setReadDataOnly(true);
+            $spreadsheet = $reader->load($tempPath);
         } catch (\Exception $e) {
             return ['valid' => false, 'errors' => [['row' => 0, 'column' => '', 'error' => 'Unable to read the Excel file. It may be corrupted.']], 'rows' => [], 'file_hash' => $fileHash];
         }
@@ -484,8 +486,15 @@ class TemplateService
         $columns = $schema['columns'] ?? [];
 
         $file = Storage::disk($upload->disk)->path($upload->stored_path);
-        $spreadsheet = IOFactory::load($file);
+        abort_unless(file_exists($file), 410, 'The uploaded template file is no longer available.');
+
+        $reader = IOFactory::createReaderForFile($file);
+        $reader->setReadDataOnly(true);
+        $spreadsheet = $reader->load($file);
+
         $dataSheet = $spreadsheet->getSheetByName('Data');
+        abort_unless($dataSheet, 422, 'The "Data" sheet is missing from the uploaded file.');
+
         $headerMap = $this->buildHeaderMap($dataSheet);
 
         DB::transaction(function () use ($auction, $upload, $template, $columns, $dataSheet, $headerMap) {

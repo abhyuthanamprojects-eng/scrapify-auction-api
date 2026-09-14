@@ -270,6 +270,12 @@ class AuctionTemplateController extends Controller
         $auction = Auction::where('code', $auctionCode)->firstOrFail();
         $this->authorizeOwnerOrStaff($request, $auction);
 
+        abort_if(
+            in_array($auction->status, ['closed', 'cancelled', 'live']),
+            422,
+            'Cannot import items for this auction.',
+        );
+
         $upload = AuctionTemplateUpload::where('id', $uploadId)
             ->where('auction_id', $auction->id)
             ->firstOrFail();
@@ -294,9 +300,11 @@ class AuctionTemplateController extends Controller
         ]);
     }
 
-    public function uploadValidationResult(string $auctionCode, string $uploadId): JsonResponse
+    public function uploadValidationResult(Request $request, string $auctionCode, string $uploadId): JsonResponse
     {
         $auction = Auction::where('code', $auctionCode)->firstOrFail();
+        $this->authorizeOwnerOrStaff($request, $auction);
+
         $upload = AuctionTemplateUpload::where('id', $uploadId)
             ->where('auction_id', $auction->id)
             ->firstOrFail();
