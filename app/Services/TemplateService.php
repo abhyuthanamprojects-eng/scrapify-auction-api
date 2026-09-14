@@ -489,7 +489,7 @@ class TemplateService
         $headerMap = $this->buildHeaderMap($dataSheet);
 
         DB::transaction(function () use ($auction, $upload, $template, $columns, $dataSheet, $headerMap) {
-            $auction->items()->where('upload_id', '!=', $upload->id)->delete();
+            $auction->items()->delete();
             $auction->lots()->delete();
 
             $highestRow = $dataSheet->getHighestRow();

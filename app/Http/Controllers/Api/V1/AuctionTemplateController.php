@@ -227,6 +227,10 @@ class AuctionTemplateController extends Controller
             abort(422, 'Template category does not match auction category.');
         }
 
+        if ($auction->direction && $template->direction !== 'both' && $template->direction !== $auction->direction) {
+            abort(422, 'Template direction does not match auction direction.');
+        }
+
         $result = $this->templateService->validateAndParseUpload(
             $request->file('file'),
             $template,
