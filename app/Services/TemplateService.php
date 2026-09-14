@@ -130,13 +130,15 @@ class TemplateService
 
         $sheet->setCellValue('A1', 'Item No.');
         $col = 'B';
+        $lastCol = 'A';
         foreach ($columns as $colDef) {
             $sheet->setCellValue($col.'1', $colDef['label'] ?? $colDef['key']);
             $sheet->getColumnDimension($col)->setWidth(max(strlen($colDef['label'] ?? $colDef['key']) + 4, 15));
+            $lastCol = $col;
             $col++;
         }
 
-        $headerRange = 'A1:'.chr(ord($col) - 1).'1';
+        $headerRange = 'A1:'.$lastCol.'1';
         $sheet->getStyle($headerRange)->getFont()->setBold(true);
         $sheet->getStyle($headerRange)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('4472C4');
         $sheet->getStyle($headerRange)->getFont()->getColor()->setRGB('FFFFFF');
