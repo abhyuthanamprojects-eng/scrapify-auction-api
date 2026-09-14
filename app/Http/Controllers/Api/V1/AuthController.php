@@ -415,6 +415,18 @@ class AuthController extends Controller
         ]);
 
         $identifier = $this->normalizeOtpIdentifier($data['identifier']);
+        if ($data['purpose'] === 'login') {
+            $user = User::where('email', $identifier)->orWhere('phone', $identifier)->first();
+            if (! $user) {
+                throw ValidationException::withMessages(['identifier' => 'No account exists for this email or mobile number.']);
+            }
+            if (! $user->isPublicUser()) {
+                return $this->contextDenied('This account must sign in through the Admin Portal.', 'ADMIN_LOGIN_NOT_ALLOWED_HERE');
+            }
+            if ($user->status !== 'active') {
+                throw ValidationException::withMessages(['identifier' => 'This account is not active.']);
+            }
+        }
         $result = $this->otpService->request($identifier, $data['purpose']);
         if (! $result['success']) {
             return $this->otpFailure($result);
@@ -438,6 +450,15 @@ class AuthController extends Controller
         ]);
 
         $identifier = $this->normalizeOtpIdentifier($data['identifier']);
+        if ($data['purpose'] === 'login') {
+            $user = User::where('email', $identifier)->orWhere('phone', $identifier)->first();
+            if (! $user) {
+                throw ValidationException::withMessages(['identifier' => 'No account exists for this email or mobile number.']);
+            }
+            if (! $user->isPublicUser()) {
+                return $this->contextDenied('This account must sign in through the Admin Portal.', 'ADMIN_LOGIN_NOT_ALLOWED_HERE');
+            }
+        }
         $result = $this->otpService->resend($identifier, $data['purpose']);
         if (! $result['success']) {
             return $this->otpFailure($result);

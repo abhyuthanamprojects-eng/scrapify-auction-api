@@ -46,6 +46,18 @@ class OtpService
         return $digits;
     }
 
+    public function isTestIdentifier(string $identifier): bool
+    {
+        if (! (bool) config('services.msg91.otp_test_mode', false)) {
+            return false;
+        }
+
+        $normalized = $this->normalizeIdentifier($identifier);
+        $configured = array_map(fn (string $value): string => $this->normalizeIdentifier($value), config('services.msg91.otp_test_identifiers', []));
+
+        return in_array($normalized, $configured, true);
+    }
+
     public function request(string $identifier, string $purpose, bool $applyLimits = true): array
     {
         $identifier = $this->normalizeIdentifier($identifier);
@@ -54,11 +66,18 @@ class OtpService
             $this->enforceLimits($identifier, false);
         }
 
-        $testMode = (bool) config('services.msg91.otp_test_mode', false) && app()->environment(['local', 'testing']);
+        $testMode = $this->isTestIdentifier($identifier);
         $length = $this->otpLength($identifier);
-        $code = $testMode ? str_repeat('1', $length) : (string) random_int(10 ** ($length - 1), (10 ** $length) - 1);
+        $code = $testMode
+            ? (string) config('services.msg91.otp_test_code', '0000')
+            : (string) random_int(10 ** ($length - 1), (10 ** $length) - 1);
+        if ($testMode && ! preg_match('/^\d{'.self::OTP_LENGTH.'}$/', $code)) {
+            $code = '0000';
+        }
 
-        if ($channel === 'sms' && ! $testMode) {
+        if ($testMode) {
+            $storedCode = Hash::make($code);
+        } elseif ($channel === 'sms') {
             if (! GeneralSettings::bool('msg91_enabled', true)) {
                 return ['success' => false, 'code' => 'OTP_PROVIDER_DISABLED', 'message' => 'SMS OTP verification is temporarily unavailable.'];
             }
@@ -177,7 +196,7 @@ class OtpService
     {
         $identifier = $this->normalizeIdentifier($identifier);
         $this->enforceLimits($identifier, true);
-        if ($this->channel($identifier) === 'sms' && ! ((bool) config('services.msg91.otp_test_mode', false) && app()->environment(['local', 'testing']))) {
+        if ($this->channel($identifier) === 'sms' && ! $this->isTestIdentifier($identifier)) {
             if (! GeneralSettings::bool('msg91_enabled', true)) {
                 return ['success' => false, 'code' => 'OTP_PROVIDER_DISABLED', 'message' => 'SMS OTP verification is temporarily unavailable.'];
             }

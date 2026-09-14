@@ -15,6 +15,13 @@ return [
         'sender_id' => env('MSG91_SENDER_ID', 'YOURBR'),
         'country_code' => env('MSG91_COUNTRY_CODE', '91'),
         'otp_test_mode' => (bool) env('OTP_TEST_MODE', false),
+        // Never enable a shared OTP for all accounts. Only identifiers listed
+        // here may use the controlled test code (for App Store/Play testing).
+        'otp_test_code' => (string) env('OTP_TEST_CODE', '0000'),
+        'otp_test_identifiers' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('OTP_TEST_IDENTIFIERS', '')),
+        ))),
     ],
 
     'cashfree_secure_id' => [
