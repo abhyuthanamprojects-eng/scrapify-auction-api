@@ -8,6 +8,7 @@ use App\Models\BusinessVerification;
 use App\Services\BusinessVerificationService;
 use App\Exceptions\VerificationProviderException;
 use App\Services\Verification\VerificationProviderResolver;
+use App\Contracts\IfscLookupProviderInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -40,6 +41,18 @@ class BusinessVerificationController extends Controller
         $data = $request->validate(['bank_account' => ['required', 'string', 'min:6', 'max:40', 'regex:/^\d+$/'], 'bank_account_confirmation' => ['required', 'same:bank_account'], 'ifsc' => ['required', 'string', 'size:11', 'regex:/^[A-Z]{4}0[A-Z0-9]{6}$/i'], 'name' => ['nullable', 'string', 'max:120'], 'phone' => ['nullable', 'string', 'max:20', new IndianMobileNumber()]]);
         try {
             return response()->json(['success' => true, 'data' => $service->present($service->verifyBank($request->user(), $data['bank_account'], $data['ifsc'], $data['name'] ?? null, $data['phone'] ?? null))]);
+        } catch (VerificationProviderException $exception) {
+            return $this->providerError($exception);
+        }
+    }
+
+    public function lookupIfsc(Request $request, string $ifsc, VerificationProviderResolver $resolver): JsonResponse
+    {
+        abort_unless(preg_match('/^[A-Z]{4}0[A-Z0-9]{6}$/i', $ifsc), 422, 'Enter a valid 11-character IFSC.');
+        try {
+            $provider = $resolver->for('BANK');
+            abort_unless($provider instanceof IfscLookupProviderInterface, 422, 'The active bank provider does not support IFSC lookup.');
+            return response()->json(['success' => true, 'data' => $provider->lookupIfsc(strtoupper($ifsc))]);
         } catch (VerificationProviderException $exception) {
             return $this->providerError($exception);
         }

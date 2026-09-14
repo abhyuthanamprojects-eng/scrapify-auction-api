@@ -3,6 +3,7 @@
 namespace App\Services\Verification;
 
 use App\Contracts\BusinessVerificationProviderInterface;
+use App\Contracts\IfscLookupProviderInterface;
 use App\Exceptions\VerificationProviderException;
 use App\Services\GeneralSettings;
 use Carbon\Carbon;
@@ -10,7 +11,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
-final class SandboxVerificationProvider implements BusinessVerificationProviderInterface
+final class SandboxVerificationProvider implements BusinessVerificationProviderInterface, IfscLookupProviderInterface
 {
     public function key(): string
     {
@@ -108,6 +109,7 @@ final class SandboxVerificationProvider implements BusinessVerificationProviderI
 
     public function verifyBankAccount(string $account, string $ifsc, ?string $name = null, ?string $phone = null): NormalizedVerificationResult
     {
+        $bank = $this->lookupIfsc($ifsc);
         $path = '/bank/'.rawurlencode($ifsc).'/accounts/'.rawurlencode($account).'/penniless-verify';
         $query = array_filter(['name' => $name, 'mobile' => $phone], static fn ($value) => filled($value));
         $response = $this->request('GET', $path, [], $query);
@@ -121,9 +123,11 @@ final class SandboxVerificationProvider implements BusinessVerificationProviderI
             [
                 'account_status' => $exists ? 'VALID' : 'INVALID',
                 'name_at_bank' => $data['name_at_bank'] ?? $data['registered_name'] ?? null,
-                'bank_name' => $data['bank_name'] ?? null,
-                'branch' => $data['branch'] ?? null,
-                'city' => $data['city'] ?? null,
+                'bank_name' => $data['bank_name'] ?? $bank['bank_name'] ?? null,
+                'branch' => $data['branch'] ?? $bank['branch'] ?? null,
+                'city' => $data['city'] ?? $bank['city'] ?? null,
+                'state' => $data['state'] ?? $bank['state'] ?? null,
+                'address' => $data['address'] ?? $bank['address'] ?? null,
                 'name_match_score' => is_numeric($data['name_match_score'] ?? null) ? (float) $data['name_match_score'] : null,
                 'name_match_result' => $data['name_match_result'] ?? null,
             ],
@@ -131,6 +135,27 @@ final class SandboxVerificationProvider implements BusinessVerificationProviderI
             $exists ? null : 'BANK_ACCOUNT_INVALID',
             'BANK',
         );
+    }
+
+    public function lookupIfsc(string $ifsc): array
+    {
+        $data = $this->unwrap($this->request('GET', '/bank/'.rawurlencode(strtoupper(trim($ifsc)))));
+
+        return array_filter([
+            'ifsc' => $data['IFSC'] ?? $data['ifsc'] ?? $ifsc,
+            'bank_name' => $data['BANK'] ?? $data['bank'] ?? $data['bank_name'] ?? null,
+            'bank_code' => $data['BANKCODE'] ?? $data['bank_code'] ?? null,
+            'branch' => $data['BRANCH'] ?? $data['branch'] ?? null,
+            'address' => $data['ADDRESS'] ?? $data['address'] ?? null,
+            'state' => $data['STATE'] ?? $data['state'] ?? null,
+            'city' => $data['CITY'] ?? $data['city'] ?? null,
+            'district' => $data['DISTRICT'] ?? $data['district'] ?? null,
+            'micr' => $data['MICR'] ?? $data['micr'] ?? null,
+            'upi' => $data['UPI'] ?? $data['upi'] ?? null,
+            'rtgs' => $data['RTGS'] ?? $data['rtgs'] ?? null,
+            'neft' => $data['NEFT'] ?? $data['neft'] ?? null,
+            'imps' => $data['IMPS'] ?? $data['imps'] ?? null,
+        ], static fn ($value) => $value !== null);
     }
 
     private function request(string $method, string $path, array $payload = [], array $query = []): array

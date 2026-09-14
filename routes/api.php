@@ -110,6 +110,7 @@ Route::prefix('v1')->group(function () {
         Route::post('kyb/gstin/verify', [BusinessVerificationController::class, 'verifyGstin'])->middleware('permission:kyb.view');
         Route::post('kyb/pan/verify', [BusinessVerificationController::class, 'verifyPan'])->middleware('permission:kyb.view');
         Route::post('kyb/bank/verify', [BusinessVerificationController::class, 'verifyBank'])->middleware('permission:kyb.view');
+        Route::get('kyb/bank/ifsc/{ifsc}', [BusinessVerificationController::class, 'lookupIfsc'])->middleware('permission:kyb.view');
         Route::post('kyb/reverify', [BusinessVerificationController::class, 'reverify'])->middleware('permission:kyb.view');
         Route::get('admin/kyb', [BusinessVerificationController::class, 'adminIndex'])->middleware(['token.context:admin', 'permission:kyb.view']);
         Route::get('admin/kyb/{id}', [BusinessVerificationController::class, 'adminShow'])->middleware(['token.context:admin', 'permission:kyb.view']);

@@ -173,6 +173,7 @@ class VendorController extends Controller
                 'account_holder_name' => $data['account_holder_name'] ?? $vendor->contact_name,
             ]);
             $vendor->bank_status = $bankResult['status'];
+            $this->applyBankProviderDetails($vendor, $bankResult['data'] ?? []);
         }
 
         if ($data['terms_accepted'] ?? false) {
@@ -254,6 +255,7 @@ class VendorController extends Controller
                 'account_holder_name' => $vendor->account_holder_name ?? $vendor->contact_name,
             ]);
             $vendor->bank_status = $bankResult['status'];
+            $this->applyBankProviderDetails($vendor, $bankResult['data'] ?? []);
         }
 
         // Transition status to pending via KycStatusService
@@ -842,5 +844,12 @@ class VendorController extends Controller
             403,
             'You may only manage your own vendor profile.',
         );
+    }
+
+    private function applyBankProviderDetails(Vendor $vendor, array $data): void
+    {
+        $vendor->bank_name = $data['bank_name'] ?? $vendor->bank_name;
+        $vendor->branch_name = $data['branch'] ?? $vendor->branch_name;
+        $vendor->account_holder_name = $data['name_at_bank'] ?? $vendor->account_holder_name;
     }
 }
