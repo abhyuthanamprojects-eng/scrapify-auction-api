@@ -492,7 +492,7 @@ class VendorController extends Controller
             $ocrData['status'] = 'Active (NSDL Verified)';
         } elseif (str_contains($docKey, 'cheque') || str_contains(strtolower($kind), 'cheque') || str_contains(strtolower($kind), 'bank')) {
             $ocrData['account_number'] = $vendor->account_number ?: '9876543210'.rand(10, 99);
-            $ocrData['ifsc_code'] = $vendor->ifsc_code ?: 'HDFC0001234';
+            $ocrData['ifsc_code'] = $vendor->ifsc_code;
             $ocrData['status'] = 'Bank Account Verified';
         } else {
             $ocrData['document_number'] = 'DOC-'.rand(100000, 999999);
