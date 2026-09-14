@@ -720,6 +720,7 @@ class AuctionController extends Controller
     {
         $auction = Auction::where('code', $code)->firstOrFail();
         $user = $request->user();
+        abort_unless(app(\App\Services\AuctionEligibilityService::class)->registrationOpen($auction), 422, 'Auction registration has closed. You may only view this auction.');
 
         AuctionTermsAcceptance::updateOrCreate(
             ['auction_id' => $auction->id, 'user_id' => $user->id, 'terms_version_id' => $auction->current_terms_version_id],
@@ -840,6 +841,9 @@ class AuctionController extends Controller
             'category' => $auction->category?->name ?? $auction->material_type,
             'location' => $auction->location,
             'status' => $auction->status,
+            'participation' => app(\App\Services\AuctionEligibilityService::class)->participationState($auction, $user?->vendor),
+            'can_join' => (bool) $user?->vendor && app(\App\Services\AuctionEligibilityService::class)->isParticipant($auction, $user->vendor) && in_array($auction->status, ['live', 'extended', 'paused'], true),
+            'can_bid' => (bool) $user?->vendor && app(\App\Services\AuctionEligibilityService::class)->isParticipant($auction, $user->vendor) && in_array($auction->status, ['live', 'extended', 'paused'], true),
             'direction' => $auction->direction,
             'starting_price_inr' => $auction->starting_price !== null ? (float) $auction->starting_price : null,
             'current_highest_inr' => $current,
@@ -995,6 +999,7 @@ class AuctionController extends Controller
             'emd_amount' => ['sometimes', 'numeric', 'min:0'],
             'status' => ['sometimes', Rule::in(['draft', 'pending_approval'])],
             'schedule_start' => ['sometimes', 'nullable', 'date'],
+            'registration_end' => ['sometimes', 'nullable', 'date'],
             'schedule_end' => ['sometimes', 'nullable', 'date', 'after:schedule_start'],
             'inspection' => ['sometimes', 'nullable', 'string'],
             'inspection_date' => ['sometimes', 'nullable', 'string', 'max:60'],

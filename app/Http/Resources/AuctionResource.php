@@ -5,6 +5,7 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use App\Services\GeneralSettings;
+use App\Services\AuctionEligibilityService;
 
 /**
  * Field names mirror the admin panel's `Auction` type and the mobile demo's
@@ -17,6 +18,9 @@ class AuctionResource extends JsonResource
     {
         $user = $request->user();
         $private = $user && ($user->hasPermission('auctions.approve') || $this->submitted_by === $user->id);
+        $vendor = $user?->vendor;
+        $participation = app(AuctionEligibilityService::class)->participationState($this->resource, $vendor);
+        $isLive = in_array($this->status, ['live', 'extended', 'paused'], true);
         return [
             'id' => $this->code,
             'code' => $this->code,
@@ -53,6 +57,10 @@ class AuctionResource extends JsonResource
             'owner_user_id' => $this->submitted_by,
             'submitted_at' => $this->submitted_at?->toIso8601String(),
             'schedule_start' => $this->schedule_start?->toIso8601String(),
+            'registration_end' => $participation['registration_end'],
+            'registration_status' => $participation['registration_status'],
+            'is_registered' => $participation['is_registered'],
+            'registration_open' => $participation['registration_open'],
             'schedule_end' => $this->schedule_end?->toIso8601String(),
             'actual_started_at' => $this->actual_started_at?->toIso8601String(),
             'hard_end_at' => $this->schedule_end?->toIso8601String(),
@@ -109,8 +117,10 @@ class AuctionResource extends JsonResource
                     && (! $this->schedule_start || now()->lt($this->schedule_start->copy()->subHours(GeneralSettings::int('auction_edit_lock_hours', 3)))),
                 'edit_lock_hours' => GeneralSettings::int('auction_edit_lock_hours', 3),
                 'can_submit' => in_array($this->status, ['draft', 'sent_back'], true),
-                'can_bid' => $this->status === 'live',
-                'can_join' => in_array($this->status, ['published', 'live'], true),
+                'can_bid' => $participation['is_registered'] && $isLive,
+                'can_join' => $participation['is_registered'] && $isLive,
+                'can_register' => (bool) $vendor && ! $participation['is_registered'] && $participation['registration_open'] && ! $isLive,
+                'blocked_reason' => ! $participation['is_registered'] ? ($participation['registration_open'] ? 'AUCTION_REGISTRATION_REQUIRED' : 'REGISTRATION_CLOSED') : null,
             ],
             'created_at' => $this->created_at?->toIso8601String(),
         ];

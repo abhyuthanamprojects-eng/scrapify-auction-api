@@ -8,13 +8,14 @@ use App\Models\EmdTransaction;
 use App\Models\Lot;
 use App\Services\EmdService;
 use App\Services\WalletService;
+use App\Services\AuctionEligibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class WalletController extends Controller
 {
-    public function __construct(private WalletService $wallets, private EmdService $emd)
+    public function __construct(private WalletService $wallets, private EmdService $emd, private AuctionEligibilityService $eligibility)
     {
     }
 
@@ -93,6 +94,7 @@ class WalletController extends Controller
         $vendor = $request->user()->vendor;
 
         abort_unless($vendor, 422, 'This account has no vendor profile.');
+        abort_unless($this->eligibility->registrationOpen($auction), 422, 'Auction registration has closed. You may only view this auction.');
 
         $emd = $this->emd->ensureLocked(
             $auction,

@@ -6,9 +6,34 @@ use App\Models\EmdTransaction;
 use App\Models\Vendor;
 final class AuctionEligibilityService
 {
+    public function registrationEnd(Auction $auction): ?\Illuminate\Support\Carbon
+    {
+        return $auction->registration_end ?? $auction->schedule_start;
+    }
+
+    public function registrationOpen(Auction $auction): bool
+    {
+        $end = $this->registrationEnd($auction);
+        return ! $end || now()->lt($end);
+    }
+
+    public function isParticipant(Auction $auction, Vendor $vendor): bool
+    {
+        return $auction->emdTransactions()->where('vendor_id', $vendor->id)->exists()
+            || $auction->termsAcceptances()->where('user_id', $vendor->user_id)->exists();
+    }
+
+    public function participationState(Auction $auction, ?Vendor $vendor): array
+    {
+        $registered = $vendor ? $this->isParticipant($auction, $vendor) : false;
+        $open = $this->registrationOpen($auction);
+        return ['is_registered' => $registered, 'registration_open' => $open, 'registration_end' => $this->registrationEnd($auction)?->toIso8601String(), 'registration_status' => $registered ? 'registered' : ($open ? 'open' : 'closed')];
+    }
+
     public function evaluate(Auction $auction, Vendor $vendor): array
     {
         $user = $vendor->user; $reasons = [];
+        if (in_array($auction->status, ['live', 'extended', 'paused'], true) && ! $this->isParticipant($auction, $vendor)) $reasons[] = 'AUCTION_REGISTRATION_REQUIRED';
         if (! $user || $user->status !== 'active') $reasons[] = 'ACCOUNT_INACTIVE';
         if ($auction->submitted_by && (int)$auction->submitted_by === (int)$user?->id) $reasons[] = 'AUCTION_OWNER_NOT_ALLOWED';
         if (! $vendor->canBid()) $reasons[] = $vendor->status === 'suspended' ? 'ACCOUNT_SUSPENDED' : 'KYC_REQUIRED';

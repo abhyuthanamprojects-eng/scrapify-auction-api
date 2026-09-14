@@ -17,6 +17,7 @@ class Auction extends Model
     protected $casts = [
         'submitted_at' => 'datetime',
         'schedule_start' => 'datetime',
+        'registration_end' => 'datetime',
         'schedule_end' => 'datetime',
         'published_at' => 'datetime',
         'actual_started_at' => 'datetime',
