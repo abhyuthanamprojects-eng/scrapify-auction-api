@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\V1\WalletController;
 use App\Http\Controllers\Api\V1\WatchlistController;
 use App\Http\Controllers\Api\V1\AuctionTemplateController;
 use App\Http\Controllers\Api\V1\BusinessVerificationController;
+use App\Http\Controllers\Api\V1\TermsConditionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -64,6 +65,8 @@ Route::prefix('v1')->group(function () {
     Route::get('categories', [CategoryController::class, 'index']);
     Route::get('categories/{categoryId}/auction-template', [AuctionTemplateController::class, 'forCategory']);
     Route::get('auction-templates/{id}/download', [AuctionTemplateController::class, 'download']);
+    Route::get('terms-conditions', [TermsConditionController::class, 'allActive']);
+    Route::get('categories/{categoryId}/terms-conditions', [TermsConditionController::class, 'forCategory']);
     Route::get('platform-config', [PlatformConfigController::class, 'show']);
     Route::get('auctions', [AuctionController::class, 'index']);
     Route::get('auctions/{code}', [AuctionController::class, 'show']);
@@ -276,6 +279,18 @@ Route::prefix('v1')->group(function () {
         Route::post('auction-templates/{id}/deactivate', [AuctionTemplateController::class, 'deactivate'])
             ->middleware('permission:auctions.approve');
         Route::post('auction-templates/{id}/new-version', [AuctionTemplateController::class, 'newVersion'])
+            ->middleware('permission:auctions.approve');
+
+        /* terms & conditions management */
+        Route::get('terms-conditions', [TermsConditionController::class, 'index'])
+            ->middleware('permission:auctions.approve');
+        Route::get('terms-conditions/{id}', [TermsConditionController::class, 'show'])
+            ->middleware('permission:auctions.approve');
+        Route::post('terms-conditions', [TermsConditionController::class, 'store'])
+            ->middleware('permission:auctions.approve');
+        Route::patch('terms-conditions/{id}', [TermsConditionController::class, 'update'])
+            ->middleware('permission:auctions.approve');
+        Route::delete('terms-conditions/{id}', [TermsConditionController::class, 'destroy'])
             ->middleware('permission:auctions.approve');
 
         /* lots, nested under a lot-wise auction */

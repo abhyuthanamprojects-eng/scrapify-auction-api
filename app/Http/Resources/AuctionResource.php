@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Models\TermsCondition;
 use App\Services\GeneralSettings;
 use App\Services\AuctionEligibilityService;
 
@@ -69,6 +70,11 @@ class AuctionResource extends JsonResource
             'inspection_time' => $this->inspection_time,
             'inspection_location' => $this->inspection_location,
             'terms' => $this->terms,
+            'terms_conditions' => TermsCondition::active()
+                ->forCategory($this->category_id)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get(['id', 'title', 'content', 'type', 'applicable_to', 'category_id', 'sort_order']),
             'terms_version' => $this->current_terms_version_id ? [
                 'id' => $this->current_terms_version_id,
                 'version' => $this->currentTermsVersion?->version,
