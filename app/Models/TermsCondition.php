@@ -30,12 +30,13 @@ class TermsCondition extends Model
         return $query->where('is_active', true);
     }
 
-    public function scopeForCategory($query, ?int $categoryId)
+    public function scopeForCategory($query, ?int $categoryId, ?int $subcategoryId = null)
     {
-        return $query->where(function ($q) use ($categoryId) {
+        return $query->where(function ($q) use ($categoryId, $subcategoryId) {
             $q->whereNull('category_id');
-            if ($categoryId) {
-                $q->orWhere('category_id', $categoryId);
+            $ids = array_filter([$categoryId, $subcategoryId]);
+            if ($ids) {
+                $q->orWhereIn('category_id', $ids);
             }
         });
     }

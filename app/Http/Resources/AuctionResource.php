@@ -71,7 +71,7 @@ class AuctionResource extends JsonResource
             'inspection_location' => $this->inspection_location,
             'terms' => $this->terms,
             'terms_conditions' => TermsCondition::active()
-                ->forCategory($this->category_id)
+                ->forCategory($this->category_id, $this->subcategory_id)
                 ->orderBy('sort_order')
                 ->orderBy('id')
                 ->get(['id', 'title', 'content', 'type', 'applicable_to', 'category_id', 'sort_order']),

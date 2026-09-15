@@ -87,8 +87,10 @@ class TermsConditionController extends Controller
     {
         $role = $request->query('role', 'buyer');
 
+        $subcategoryId = $request->integer('subcategory_id') ?: null;
+
         $tncs = TermsCondition::active()
-            ->forCategory($categoryId)
+            ->forCategory($categoryId, $subcategoryId)
             ->forRole($role)
             ->orderBy('sort_order')
             ->orderBy('id')
