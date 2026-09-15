@@ -281,16 +281,17 @@ Route::prefix('v1')->group(function () {
         Route::post('auction-templates/{id}/new-version', [AuctionTemplateController::class, 'newVersion'])
             ->middleware('permission:auctions.approve');
 
-        /* terms & conditions management */
-        Route::get('terms-conditions', [TermsConditionController::class, 'index'])
+        /* terms & conditions management — admin-prefixed so the public
+           GET /terms-conditions listing is not shadowed by this group */
+        Route::get('admin/terms-conditions', [TermsConditionController::class, 'index'])
             ->middleware('permission:auctions.approve');
-        Route::get('terms-conditions/{id}', [TermsConditionController::class, 'show'])
+        Route::get('admin/terms-conditions/{id}', [TermsConditionController::class, 'show'])
             ->middleware('permission:auctions.approve');
-        Route::post('terms-conditions', [TermsConditionController::class, 'store'])
+        Route::post('admin/terms-conditions', [TermsConditionController::class, 'store'])
             ->middleware('permission:auctions.approve');
-        Route::patch('terms-conditions/{id}', [TermsConditionController::class, 'update'])
+        Route::patch('admin/terms-conditions/{id}', [TermsConditionController::class, 'update'])
             ->middleware('permission:auctions.approve');
-        Route::delete('terms-conditions/{id}', [TermsConditionController::class, 'destroy'])
+        Route::delete('admin/terms-conditions/{id}', [TermsConditionController::class, 'destroy'])
             ->middleware('permission:auctions.approve');
 
         /* lots, nested under a lot-wise auction */

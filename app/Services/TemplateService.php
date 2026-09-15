@@ -154,13 +154,13 @@ class TemplateService
     ): array {
         $errors = [];
 
+        $tempPath = $file->getRealPath();
+        $fileHash = $tempPath && is_file($tempPath) ? hash_file('sha256', $tempPath) : '';
+
         $errors = array_merge($errors, $this->validateFile($file, $template));
         if (! empty($errors)) {
-            return ['valid' => false, 'errors' => $errors, 'rows' => []];
+            return ['valid' => false, 'errors' => $errors, 'rows' => [], 'file_hash' => $fileHash];
         }
-
-        $tempPath = $file->getRealPath();
-        $fileHash = hash_file('sha256', $tempPath);
 
         try {
             $reader = IOFactory::createReaderForFile($tempPath);
@@ -464,7 +464,7 @@ class TemplateService
             'disk' => 'local',
             'mime_type' => $file->getMimeType(),
             'file_size' => $file->getSize(),
-            'file_hash' => $parseResult['file_hash'],
+            'file_hash' => $parseResult['file_hash'] ?? '',
             'row_count' => $parseResult['row_count'] ?? 0,
             'total_quantity' => $parseResult['total_quantity'] ?? 0,
             'total_reference_value' => $parseResult['total_reference_value'] ?? 0,

@@ -986,6 +986,7 @@ class AuctionController extends Controller
             'warehouse_details.contact' => ['sometimes', 'nullable', 'string', 'max:120'],
             'location' => ['sometimes', 'nullable', 'string', 'max:180'],
             'category' => ['sometimes', 'nullable', 'string'],
+            'category_id' => ['sometimes', 'nullable', 'integer', 'exists:categories,id'],
             'subcategory_id' => ['sometimes', 'nullable', 'integer', 'exists:categories,id'],
             'lot_type' => ['sometimes', Rule::in(['single', 'lot_wise'])],
             'direction' => ['sometimes', Rule::in(['forward', 'reverse'])],
@@ -998,8 +999,10 @@ class AuctionController extends Controller
             'bid_increment' => ['sometimes', 'numeric', 'min:0'],
             'emd_amount' => ['sometimes', 'numeric', 'min:0'],
             'status' => ['sometimes', Rule::in(['draft', 'pending_approval'])],
-            'schedule_start' => ['sometimes', 'nullable', 'date'],
-            'registration_end' => ['sometimes', 'nullable', 'date'],
+            // `after:now` only on create — an update may legitimately touch an
+            // auction whose start has already passed.
+            'schedule_start' => array_filter(['sometimes', 'nullable', 'date', $partial ? null : 'after:now']),
+            'registration_end' => ['sometimes', 'nullable', 'date', 'before_or_equal:schedule_start'],
             'schedule_end' => ['sometimes', 'nullable', 'date', 'after:schedule_start'],
             'inspection' => ['sometimes', 'nullable', 'string'],
             'inspection_date' => ['sometimes', 'nullable', 'string', 'max:60'],
@@ -1025,16 +1028,29 @@ class AuctionController extends Controller
 
     private function attributes(array $data, bool $partial = false): array
     {
-        $attrs = collect($data)->except(['sub_lots', 'photos', 'category', 'organization_code', 'status', 'subcategory_id'])->all();
+        $attrs = collect($data)->except(['sub_lots', 'photos', 'category', 'organization_code', 'status', 'subcategory_id', 'category_id'])->all();
 
         if (array_key_exists('subcategory_id', $data) && $data['subcategory_id']) {
             $attrs['subcategory_id'] = $data['subcategory_id'];
         }
 
-        if (array_key_exists('category', $data) && $data['category']) {
+        if (array_key_exists('category_id', $data) && $data['category_id']) {
+            $attrs['category_id'] = (int) $data['category_id'];
+        } elseif (array_key_exists('category', $data) && $data['category']) {
             $attrs['category_id'] = Category::where('slug', $data['category'])
                 ->orWhere('name', $data['category'])
                 ->value('id');
+        }
+
+        // A client may name a subcategory in `category` (or pass the child's id).
+        // Normalise to parent + child so category-scoped lookups — templates,
+        // terms and listing filters — resolve against the top-level category.
+        if (! empty($attrs['category_id'])) {
+            $resolved = Category::find($attrs['category_id']);
+            if ($resolved?->parent_id) {
+                $attrs['subcategory_id'] = $attrs['subcategory_id'] ?? $resolved->id;
+                $attrs['category_id'] = $resolved->parent_id;
+            }
         }
 
         if (array_key_exists('organization_code', $data) && $data['organization_code']) {
