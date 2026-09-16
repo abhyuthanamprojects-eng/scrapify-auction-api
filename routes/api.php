@@ -128,6 +128,8 @@ Route::prefix('v1')->group(function () {
         /* profile, addresses, payment methods — public workspace only */
         Route::middleware('token.context:public')->group(function () {
             Route::patch('profile', [ProfileController::class, 'update']);
+            Route::get('profile/deletion-check', [ProfileController::class, 'deletionCheck']);
+            Route::delete('profile', [ProfileController::class, 'destroy']);
             Route::get('profile/addresses', [ProfileController::class, 'addresses']);
             Route::post('profile/addresses', [ProfileController::class, 'storeAddress']);
             Route::patch('profile/addresses/{id}', [ProfileController::class, 'updateAddress']);

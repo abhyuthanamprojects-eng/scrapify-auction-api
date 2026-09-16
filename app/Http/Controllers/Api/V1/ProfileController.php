@@ -5,12 +5,21 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\Address;
+use App\Models\Award;
+use App\Models\Auction;
+use App\Models\Dispute;
+use App\Models\EmdTransaction;
+use App\Models\FallbackOffer;
+use App\Models\Order;
 use App\Models\PaymentMethod;
 use App\Rules\IndianMobileNumber;
 use App\Rules\IndianPincode;
+use App\Services\AuditLogger;
 use App\Services\PincodeLookupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 /**
@@ -104,6 +113,152 @@ class ProfileController extends Controller
         $request->user()->paymentMethods()->findOrFail($id)->delete();
 
         return response()->json(['message' => 'Payment method removed.']);
+    }
+
+    public function deletionCheck(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $blockers = $this->accountDeletionBlockers($user);
+
+        return response()->json([
+            'can_delete' => $blockers === [],
+            'blockers' => $blockers,
+        ]);
+    }
+
+    public function destroy(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'confirmation' => ['required', 'in:DELETE'],
+        ]);
+
+        abort_if($user->isAdmin(), 422, 'Admin accounts cannot be deleted from this endpoint.');
+
+        $blockers = $this->accountDeletionBlockers($user);
+        if ($blockers !== []) {
+            return response()->json([
+                'message' => 'Account cannot be deleted.',
+                'blockers' => $blockers,
+            ], 422);
+        }
+
+        $deletedEmail = $user->email;
+        $deletedId = $user->id;
+
+        DB::transaction(function () use ($user): void {
+            if ($user->avatar_path) {
+                Storage::disk('public')->delete($user->avatar_path);
+            }
+            if ($user->vendor) {
+                foreach ($user->vendor->documents as $doc) {
+                    if ($doc->file_path) {
+                        Storage::disk('public')->delete($doc->file_path);
+                    }
+                }
+                $user->vendor->delete();
+            }
+            $user->tokens()->delete();
+            $user->delete();
+        });
+
+        AuditLogger::writeFor($user, "Self-service account deletion: {$deletedEmail}", 'User', (string) $deletedId);
+
+        return response()->json(['message' => 'Your account has been permanently deleted.']);
+    }
+
+    private function accountDeletionBlockers($user): array
+    {
+        $blockers = [];
+        $vendorId = $user->vendor_id;
+
+        // 1. Locked EMD deposits
+        if ($vendorId) {
+            $lockedEmd = EmdTransaction::where('vendor_id', $vendorId)
+                ->where('status', 'locked')
+                ->sum('amount');
+            if ($lockedEmd > 0) {
+                $blockers[] = [
+                    'code' => 'emd_locked',
+                    'message' => "You have ₹{$lockedEmd} in locked EMD deposits. These must be released before you can delete your account.",
+                ];
+            }
+        }
+
+        // 2. Non-zero wallet balance
+        $wallet = $user->wallet;
+        if ($wallet && (float) $wallet->balance > 0) {
+            $blockers[] = [
+                'code' => 'wallet_balance',
+                'message' => "You have ₹{$wallet->balance} in your wallet. Please withdraw your balance before deleting your account.",
+            ];
+        }
+
+        // 3. Active auctions (sellers)
+        if ($user->role === 'seller' && $user->organization_id) {
+            $activeAuctions = Auction::where('organization_id', $user->organization_id)
+                ->whereIn('status', ['draft', 'submitted', 'approved', 'published', 'live'])
+                ->count();
+            if ($activeAuctions > 0) {
+                $blockers[] = [
+                    'code' => 'active_auctions',
+                    'message' => "You have {$activeAuctions} active auction(s). Please close or cancel them before deleting your account.",
+                ];
+            }
+        }
+
+        // 4. Pending orders
+        if ($vendorId) {
+            $pendingOrders = Order::where('vendor_id', $vendorId)
+                ->whereNotIn('status', ['completed', 'cancelled', 'closed'])
+                ->count();
+            if ($pendingOrders > 0) {
+                $blockers[] = [
+                    'code' => 'pending_orders',
+                    'message' => "You have {$pendingOrders} unsettled order(s). Please complete or resolve them before deleting your account.",
+                ];
+            }
+        }
+
+        // 5. Open disputes
+        $openDisputes = Dispute::where('raised_by_user_id', $user->id)
+            ->whereNotIn('status', ['resolved', 'closed', 'withdrawn'])
+            ->count();
+        if ($openDisputes > 0) {
+            $blockers[] = [
+                'code' => 'open_disputes',
+                'message' => "You have {$openDisputes} open dispute(s). Please resolve them before deleting your account.",
+            ];
+        }
+
+        // 6. Pending awards (won but not yet settled/accepted)
+        if ($vendorId) {
+            $pendingAwards = Award::where('winner_vendor_id', $vendorId)
+                ->whereNotIn('status', ['settled', 'cancelled', 'rejected', 'expired'])
+                ->count();
+            if ($pendingAwards > 0) {
+                $blockers[] = [
+                    'code' => 'pending_awards',
+                    'message' => "You have {$pendingAwards} pending award(s). Please accept or resolve them before deleting your account.",
+                ];
+            }
+        }
+
+        // 7. Pending fallback offers
+        if ($vendorId) {
+            $pendingFallbacks = FallbackOffer::where('vendor_id', $vendorId)
+                ->where('status', 'pending')
+                ->count();
+            if ($pendingFallbacks > 0) {
+                $blockers[] = [
+                    'code' => 'pending_fallback',
+                    'message' => "You have {$pendingFallbacks} pending fallback offer(s). Please respond to them before deleting your account.",
+                ];
+            }
+        }
+
+        return $blockers;
     }
 
     private function addressRules(Request $request, bool $partial = false): array
