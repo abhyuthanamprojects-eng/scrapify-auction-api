@@ -44,8 +44,10 @@ class PlatformConfigController extends Controller
             'kyb_auto_approve_match_score' => GeneralSettings::int('kyb_auto_approve_match_score', 85),
             'kyb_review_match_score' => GeneralSettings::int('kyb_review_match_score', 60),
             'kyb_allow_admin_override' => GeneralSettings::bool('kyb_allow_admin_override', true),
-            'cashfree_secure_id_environment' => config('services.cashfree_secure_id.environment'),
-            'cashfree_secure_id_enabled' => (bool) config('services.cashfree_secure_id.enabled'),
+            'razorpay_enabled' => GeneralSettings::bool('razorpay_enabled', (bool) config('services.razorpay.enabled', false)),
+            'razorpay_key_id' => GeneralSettings::secret('razorpay_key_id', config('services.razorpay.key_id')),
+            'identity_verification_enabled' => GeneralSettings::bool('digilocker_enabled', (bool) config('services.digilocker.enabled', false)),
+            'identity_verification_provider' => 'DIGILOCKER',
             'firebase' => [
                 'apiKey' => GeneralSettings::string('firebase_api_key', ''),
                 'authDomain' => GeneralSettings::string('firebase_auth_domain', ''),

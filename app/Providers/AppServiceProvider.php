@@ -15,6 +15,10 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->bind(
+            \App\Contracts\IdentityVerificationProviderInterface::class,
+            \App\Services\Verification\DigiLockerIdentityProvider::class,
+        );
     }
 
     public function boot(): void

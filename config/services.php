@@ -24,13 +24,12 @@ return [
         ))),
     ],
 
-    'cashfree_secure_id' => [
-        'enabled' => env('CASHFREE_SECURE_ID_ENABLED', false),
-        'environment' => env('CASHFREE_SECURE_ID_ENV', 'sandbox'),
-        'client_id' => env('CASHFREE_SECURE_ID_CLIENT_ID'),
-        'client_secret' => env('CASHFREE_SECURE_ID_CLIENT_SECRET'),
-        'base_url' => env('CASHFREE_SECURE_ID_BASE_URL', 'https://sandbox.cashfree.com/verification'),
-        'timeout' => env('CASHFREE_SECURE_ID_TIMEOUT', 30),
+    'razorpay' => [
+        'enabled' => env('RAZORPAY_ENABLED', false),
+        'environment' => env('RAZORPAY_ENVIRONMENT', 'test'),
+        'key_id' => env('RAZORPAY_KEY_ID'),
+        'key_secret' => env('RAZORPAY_KEY_SECRET'),
+        'timeout' => env('RAZORPAY_TIMEOUT', 30),
     ],
 
     'cashfree_pg' => [
@@ -50,6 +49,16 @@ return [
         'base_url' => env('SANDBOX_VERIFICATION_BASE_URL'),
         'api_version' => env('SANDBOX_VERIFICATION_API_VERSION', '1.0.0'),
         'timeout' => env('SANDBOX_VERIFICATION_TIMEOUT', 30),
+    ],
+
+    'digilocker' => [
+        'enabled' => env('DIGILOCKER_ENABLED', false),
+        'environment' => env('DIGILOCKER_ENVIRONMENT', 'sandbox'),
+        'client_id' => env('DIGILOCKER_CLIENT_ID'),
+        'client_secret' => env('DIGILOCKER_CLIENT_SECRET'),
+        'redirect_uri' => env('DIGILOCKER_REDIRECT_URI'),
+        'scopes' => env('DIGILOCKER_SCOPES', 'openid'),
+        'timeout' => env('DIGILOCKER_TIMEOUT', 30),
     ],
 
     /*

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\VerificationProviderException;
 use App\Models\BusinessVerification;
 use App\Models\GeneralSetting;
+use App\Models\IdentityVerification;
 use App\Models\User;
 use App\Models\VerificationProviderRequest;
 use App\Services\Verification\BusinessEntityClassifier;
@@ -89,6 +90,7 @@ final class BusinessVerificationService
             'rejection_reason' => $verification->rejection_reason,
             'verified_at' => $verification->verified_at?->toIso8601String(),
             'expires_at' => $verification->expires_at?->toIso8601String(),
+            'identity_verification' => $this->identityStatus($verification->user_id),
         ];
     }
 
@@ -326,5 +328,22 @@ final class BusinessVerificationService
     private function maskPan(string $pan): string
     {
         return substr($pan, 0, 2).str_repeat('X', max(0, strlen($pan) - 4)).substr($pan, -2);
+    }
+
+    private function identityStatus(int $userId): ?array
+    {
+        $identity = IdentityVerification::where('user_id', $userId)->orderByDesc('created_at')->first();
+        if (! $identity) {
+            return null;
+        }
+
+        return [
+            'provider' => $identity->provider,
+            'status' => $identity->status,
+            'identity_name' => $identity->identity_name,
+            'aadhaar_masked' => $identity->aadhaar_last4 ? 'XXXX XXXX ' . $identity->aadhaar_last4 : null,
+            'verified_at' => $identity->verified_at?->toIso8601String(),
+            'failure_code' => $identity->failure_code,
+        ];
     }
 }

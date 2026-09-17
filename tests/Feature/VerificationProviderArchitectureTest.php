@@ -23,10 +23,6 @@ class VerificationProviderArchitectureTest extends TestCase
         config()->set('services.sandbox_verification.enabled', true);
         config()->set('services.sandbox_verification.api_key', 'sandbox-key');
         config()->set('services.sandbox_verification.api_secret', 'sandbox-secret');
-        config()->set('services.cashfree_secure_id.enabled', true);
-        config()->set('services.cashfree_secure_id.client_id', 'cashfree-client');
-        config()->set('services.cashfree_secure_id.client_secret', 'cashfree-secret');
-        config()->set('services.cashfree_secure_id.base_url', 'https://sandbox.cashfree.com/verification');
         Cache::flush();
     }
 
@@ -55,21 +51,17 @@ class VerificationProviderArchitectureTest extends TestCase
             && $request->data()['date_of_birth'] === '01/01/1980');
     }
 
-    public function test_active_provider_failure_does_not_fallback_to_cashfree(): void
+    public function test_provider_failure_returns_error_without_fallback(): void
     {
-        GeneralSetting::create(['key' => 'gst_verification_provider', 'value' => 'sandbox']);
-        GeneralSetting::create(['key' => 'kyc_verification_provider', 'value' => 'sandbox']);
         $user = $this->user();
         Sanctum::actingAs($user);
         Http::fake([
             '*test-api.sandbox.co.in/authenticate' => Http::response(['message' => 'unavailable'], 503),
-            '*sandbox.cashfree.com/verification/*' => Http::response(['valid' => true, 'reference_id' => 'cashfree-must-not-run']),
         ]);
 
         $this->postJson('/api/v1/kyb/gstin/verify', ['gstin' => '29AAICP2912R1ZR'])
             ->assertStatus(503)->assertJsonPath('error.code', 'PROVIDER_UNAVAILABLE');
         Http::assertSentCount(1);
-        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'cashfree'));
         $this->assertSame('SANDBOX', VerificationProviderRequest::query()->value('provider'));
     }
 
@@ -87,7 +79,6 @@ class VerificationProviderArchitectureTest extends TestCase
                     'name_at_bank' => 'ACME TECHNOLOGIES',
                 ],
             ]),
-            '*sandbox.cashfree.com/verification/*' => Http::response(['valid' => true, 'reference_id' => 'cashfree-must-not-run']),
         ]);
 
         $this->postJson('/api/v1/kyb/bank/verify', [
@@ -105,7 +96,6 @@ class VerificationProviderArchitectureTest extends TestCase
         Http::assertSent(fn ($request) => str_contains($request->url(), '/penniless-verify')
             && $request->header('authorization') === ['sandbox-bank-token']
             && $request->header('x-api-key') === ['sandbox-key']);
-        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'cashfree'));
         $this->assertDatabaseHas('verification_provider_requests', [
             'verification_type' => 'BANK',
             'provider' => 'SANDBOX',
@@ -146,70 +136,31 @@ class VerificationProviderArchitectureTest extends TestCase
             && $request->header('authorization') === ['fresh-token-2']);
     }
 
-    public function test_gst_and_kyc_can_use_different_active_providers(): void
+    public function test_cashfree_cannot_be_selected_as_verification_provider(): void
     {
-        GeneralSetting::create(['key' => 'gst_verification_provider', 'value' => 'sandbox']);
-        GeneralSetting::create(['key' => 'kyc_verification_provider', 'value' => 'cashfree']);
         $user = $this->user();
         Sanctum::actingAs($user);
+        GeneralSetting::updateOrCreate(['key' => 'gst_verification_provider'], ['value' => 'cashfree']);
         Http::fake([
-            '*test-api.sandbox.co.in/authenticate' => Http::response(['data' => ['access_token' => 'sandbox-token-3']]),
-            '*test-api.sandbox.co.in/gst/compliance/public/gstin/verify' => Http::response(['data' => ['data' => ['gstin' => '29AAICP2912R1ZR', 'status' => 'Active', 'validGstin' => true], 'status_cd' => '1']]),
-            '*sandbox.cashfree.com/verification/pan' => Http::response(['reference_id' => 'cashfree-pan-ref', 'valid' => true, 'pan' => 'AAACB1234N', 'registered_name' => 'ACME TECHNOLOGIES']),
+            '*test-api.sandbox.co.in/*' => Http::response([], 200),
         ]);
 
-        $this->postJson('/api/v1/kyb/gstin/verify', ['gstin' => '29AAICP2912R1ZR'])->assertOk()->assertJsonPath('data.gstin_provider', 'SANDBOX');
-        $this->postJson('/api/v1/kyb/pan/verify', ['pan' => 'AAACB1234N', 'name' => 'Acme Technologies', 'date_of_birth' => '1980-01-01'])->assertOk()->assertJsonPath('data.kyc_provider', 'CASHFREE');
-
-        $this->assertSame(['SANDBOX', 'CASHFREE'], VerificationProviderRequest::query()->orderBy('id')->pluck('provider')->all());
-        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'cashfree.com/verification/gstin'));
+        $this->postJson('/api/v1/kyb/gstin/verify', ['gstin' => '29AAICP2912R1ZR'])
+            ->assertStatus(422)->assertJsonPath('error.code', 'PROVIDER_INVALID');
     }
 
-    public function test_provider_switch_creates_new_history_and_preserves_previous_provider(): void
-    {
-        GeneralSetting::create(['key' => 'gst_verification_provider', 'value' => 'cashfree']);
-        GeneralSetting::create(['key' => 'kyc_verification_provider', 'value' => 'cashfree']);
-        $user = $this->user();
-        Sanctum::actingAs($user);
-        Http::fake([
-            '*sandbox.cashfree.com/verification/gstin' => Http::response(['reference_id' => 'cashfree-ref', 'GSTIN' => '29AAICP2912R1ZR', 'gst_in_status' => 'Active', 'valid' => true]),
-            '*test-api.sandbox.co.in/authenticate' => Http::response(['data' => ['access_token' => 'sandbox-token-2']]),
-            '*test-api.sandbox.co.in/gst/compliance/public/gstin/verify' => Http::response(['data' => ['data' => ['gstin' => '29AAICP2912R1ZR', 'status' => 'Active', 'validGstin' => true], 'status_cd' => '1']]),
-        ]);
-
-        $this->postJson('/api/v1/kyb/gstin/verify', ['gstin' => '29AAICP2912R1ZR'])->assertOk()->assertJsonPath('data.gstin_provider', 'CASHFREE');
-        GeneralSetting::where('key', 'gst_verification_provider')->update(['value' => 'sandbox']);
-        $this->postJson('/api/v1/kyb/gstin/verify', ['gstin' => '29AAICP2912R1ZR'])->assertOk()->assertJsonPath('data.gstin_provider', 'SANDBOX');
-
-        $this->assertSame(['CASHFREE', 'SANDBOX'], VerificationProviderRequest::query()->orderBy('id')->pluck('provider')->all());
-        $this->assertSame('SANDBOX', \App\Models\BusinessVerification::query()->value('gstin_provider'));
-    }
-
-    public function test_admin_settings_mask_secrets_and_reject_unconfigured_activation(): void
+    public function test_admin_settings_mask_secrets(): void
     {
         $admin = User::factory()->create(['role' => 'admin', 'status' => 'active']);
         Sanctum::actingAs($admin);
 
-        $this->putJson('/api/v1/admin/integration-settings', [
-            'gst_verification_provider' => 'CASHFREE',
-            'cashfree_secure_id_enabled' => false,
-        ])->assertStatus(422)->assertJsonPath('error.code', 'PROVIDER_NOT_CONFIGURED');
-
         $response = $this->putJson('/api/v1/admin/integration-settings', [
-            'gst_verification_provider' => 'SANDBOX',
-            'kyc_verification_provider' => 'SANDBOX',
             'sandbox_verification_enabled' => true,
             'sandbox_verification_api_key' => 'fresh-sandbox-key',
             'sandbox_verification_api_secret' => 'fresh-sandbox-secret',
         ])->assertOk();
 
-        $response->assertJsonMissing(['fresh-sandbox-key', 'fresh-sandbox-secret'])
-            ->assertJsonPath('gst_verification_provider', 'SANDBOX');
-        $this->putJson('/api/v1/admin/integration-settings', [
-            'kyc_verification_provider' => 'CASHFREE',
-            'cashfree_secure_id_enabled' => true,
-        ])->assertOk();
-        $this->assertDatabaseHas('audit_logs', ['action' => 'VERIFICATION_PROVIDER_CHANGED', 'entity_type' => 'verification_settings', 'entity_id' => 'kyc']);
+        $response->assertJsonMissing(['fresh-sandbox-key', 'fresh-sandbox-secret']);
         $this->assertNotSame('fresh-sandbox-secret', GeneralSetting::where('key', 'sandbox_verification_api_secret')->value('value'));
     }
 

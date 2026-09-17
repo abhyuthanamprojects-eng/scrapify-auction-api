@@ -9,12 +9,10 @@ use App\Services\GeneralSettings;
 final class VerificationProviderResolver
 {
     public const SANDBOX = 'sandbox';
-    public const CASHFREE = 'cashfree';
 
     /** @var array<string, class-string<BusinessVerificationProviderInterface>> */
     private const PROVIDERS = [
         self::SANDBOX => SandboxVerificationProvider::class,
-        self::CASHFREE => CashfreeSecureIdProvider::class,
     ];
 
     public function providerKey(string $verificationType): string
@@ -48,10 +46,6 @@ final class VerificationProviderResolver
 
     public function status(): array
     {
-        $gstProvider = $this->for('GSTIN');
-        $kycProvider = $this->for('KYC');
-        $bankProvider = $this->for('BANK');
-
         return [
             'gst' => [
                 'active_provider' => strtoupper($this->providerKey('GSTIN')),

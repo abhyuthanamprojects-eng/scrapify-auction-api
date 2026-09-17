@@ -34,6 +34,8 @@ use App\Http\Controllers\Api\V1\WalletController;
 use App\Http\Controllers\Api\V1\WatchlistController;
 use App\Http\Controllers\Api\V1\AuctionTemplateController;
 use App\Http\Controllers\Api\V1\BusinessVerificationController;
+use App\Http\Controllers\Api\V1\IdentityVerificationController;
+use App\Http\Controllers\Api\V1\RazorpayController;
 use App\Http\Controllers\Api\V1\TermsConditionController;
 use Illuminate\Support\Facades\Route;
 
@@ -115,6 +117,12 @@ Route::prefix('v1')->group(function () {
         Route::post('kyb/bank/verify', [BusinessVerificationController::class, 'verifyBank'])->middleware('permission:kyb.view');
         Route::get('kyb/bank/ifsc/{ifsc}', [BusinessVerificationController::class, 'lookupIfsc'])->middleware('permission:kyb.view');
         Route::post('kyb/reverify', [BusinessVerificationController::class, 'reverify'])->middleware('permission:kyb.view');
+
+        /* Identity verification — DigiLocker OAuth flow (backend-only token exchange) */
+        Route::get('identity/digilocker/status', [IdentityVerificationController::class, 'status']);
+        Route::post('identity/digilocker/initiate', [IdentityVerificationController::class, 'initiate']);
+        Route::post('identity/digilocker/callback', [IdentityVerificationController::class, 'callback']);
+        Route::post('identity/digilocker/retry', [IdentityVerificationController::class, 'retry']);
         Route::get('admin/kyb', [BusinessVerificationController::class, 'adminIndex'])->middleware(['token.context:admin', 'permission:kyb.view']);
         Route::get('admin/kyb/{id}', [BusinessVerificationController::class, 'adminShow'])->middleware(['token.context:admin', 'permission:kyb.view']);
         Route::post('admin/kyb/{id}/approve', [BusinessVerificationController::class, 'approve'])->middleware(['token.context:admin', 'permission:kyb.approve']);
@@ -319,6 +327,10 @@ Route::prefix('v1')->group(function () {
             ->middleware(['token.context:public', 'permission:watchlist.manage']);
         Route::delete('watchlist/{code}', [WatchlistController::class, 'destroy'])
             ->middleware(['token.context:public', 'permission:watchlist.manage']);
+
+        /* Razorpay payments */
+        Route::post('payments/razorpay/create-order', [RazorpayController::class, 'createOrder']);
+        Route::post('payments/razorpay/verify', [RazorpayController::class, 'verifyPayment']);
 
         /* wallet and EMD */
         Route::get('wallet', [WalletController::class, 'balance'])->middleware('token.context:public');
