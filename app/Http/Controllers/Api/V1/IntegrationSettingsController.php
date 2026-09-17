@@ -14,8 +14,6 @@ class IntegrationSettingsController extends Controller
     private const SECRET_KEYS = [
         'razorpay_key_id',
         'razorpay_key_secret',
-        'cashfree_pg_client_id',
-        'cashfree_pg_client_secret',
         'sandbox_verification_api_key',
         'sandbox_verification_api_secret',
         'digilocker_client_id',
@@ -43,12 +41,6 @@ class IntegrationSettingsController extends Controller
             'razorpay_key_id' => $this->masked(GeneralSettings::secret('razorpay_key_id', config('services.razorpay.key_id'))),
             'razorpay_key_secret' => $this->masked(GeneralSettings::secret('razorpay_key_secret', config('services.razorpay.key_secret'))),
             'razorpay_timeout' => GeneralSettings::int('razorpay_timeout', (int) config('services.razorpay.timeout', 30)),
-            'cashfree_pg_enabled' => GeneralSettings::bool('cashfree_pg_enabled', (bool) config('services.cashfree_pg.enabled', false)),
-            'cashfree_pg_environment' => GeneralSettings::string('cashfree_pg_environment', (string) config('services.cashfree_pg.environment', 'test')),
-            'cashfree_pg_client_id' => $this->masked(GeneralSettings::secret('cashfree_pg_client_id', config('services.cashfree_pg.client_id'))),
-            'cashfree_pg_client_secret' => $this->masked(GeneralSettings::secret('cashfree_pg_client_secret', config('services.cashfree_pg.client_secret'))),
-            'cashfree_pg_api_version' => GeneralSettings::string('cashfree_pg_api_version', (string) config('services.cashfree_pg.api_version', '2025-01-01')),
-            'cashfree_pg_timeout' => GeneralSettings::int('cashfree_pg_timeout', (int) config('services.cashfree_pg.timeout', 30)),
             'sandbox_verification_enabled' => GeneralSettings::bool('sandbox_verification_enabled', (bool) config('services.sandbox_verification.enabled', true)),
             'sandbox_verification_environment' => GeneralSettings::string('sandbox_verification_environment', (string) config('services.sandbox_verification.environment', 'test')),
             'sandbox_verification_api_key' => $this->masked(GeneralSettings::secret('sandbox_verification_api_key', config('services.sandbox_verification.api_key'))),
@@ -103,12 +95,6 @@ class IntegrationSettingsController extends Controller
             'razorpay_key_id' => ['sometimes', 'nullable', 'string', 'max:500'],
             'razorpay_key_secret' => ['sometimes', 'nullable', 'string', 'max:500'],
             'razorpay_timeout' => ['sometimes', 'integer', 'min:5', 'max:120'],
-            'cashfree_pg_enabled' => ['sometimes', 'boolean'],
-            'cashfree_pg_environment' => ['sometimes', 'in:test,production'],
-            'cashfree_pg_client_id' => ['sometimes', 'nullable', 'string', 'max:500'],
-            'cashfree_pg_client_secret' => ['sometimes', 'nullable', 'string', 'max:500'],
-            'cashfree_pg_api_version' => ['sometimes', 'string', 'max:40'],
-            'cashfree_pg_timeout' => ['sometimes', 'integer', 'min:5', 'max:120'],
             'sandbox_verification_enabled' => ['sometimes', 'boolean'],
             'sandbox_verification_environment' => ['sometimes', 'in:test,live'],
             'sandbox_verification_api_key' => ['sometimes', 'nullable', 'string', 'max:500'],
@@ -161,35 +147,12 @@ class IntegrationSettingsController extends Controller
         return $this->show();
     }
 
-    public function testCashfreePayment(Request $request, \App\Services\CashfreePaymentService $payments): JsonResponse
-    {
-        $data = $request->validate([
-            'amount' => ['sometimes', 'numeric', 'min:1', 'max:100000'],
-            'customer_email' => ['sometimes', 'email', 'max:255'],
-            'customer_phone' => ['sometimes', 'string', 'max:20'],
-        ]);
-        try {
-            $result = $payments->createOrder(
-                'scrapify_test_'.now()->format('YmdHis').'_'.strtolower(substr((string) \Illuminate\Support\Str::uuid(), 0, 8)),
-                (float) ($data['amount'] ?? 10),
-                ['id' => 'admin_test_customer', 'name' => 'Scrapify Test Customer', 'email' => $data['customer_email'] ?? 'payments@scrapifyauctions.com', 'phone' => $data['customer_phone'] ?? '9999999999']
-            );
-            \App\Services\AuditLogger::write('CASHFREE_PAYMENT_TESTED', 'integration', 'cashfree_pg', ['environment' => $result['environment'], 'order_id' => $result['order_id']]);
-            return response()->json(['success' => true, 'data' => $result]);
-        } catch (\Throwable $exception) {
-            \App\Services\AuditLogger::write('CASHFREE_PAYMENT_TEST_FAILED', 'integration', 'cashfree_pg', ['error_code' => $exception::class]);
-            return response()->json(['success' => false, 'message' => $exception->getMessage(), 'error' => ['code' => 'CASHFREE_PAYMENT_UNAVAILABLE']], 503);
-        }
-    }
-
     private function incomingOrStoredSecret(string $key, array $data): ?string
     {
         if (array_key_exists($key, $data) && filled($data[$key]) && ! $this->looksMasked((string) $data[$key])) return (string) $data[$key];
         $fallbacks = [
             'razorpay_key_id' => config('services.razorpay.key_id'),
             'razorpay_key_secret' => config('services.razorpay.key_secret'),
-            'cashfree_pg_client_id' => config('services.cashfree_pg.client_id'),
-            'cashfree_pg_client_secret' => config('services.cashfree_pg.client_secret'),
             'sandbox_verification_api_key' => config('services.sandbox_verification.api_key'),
             'sandbox_verification_api_secret' => config('services.sandbox_verification.api_secret'),
             'digilocker_client_id' => config('services.digilocker.client_id'),

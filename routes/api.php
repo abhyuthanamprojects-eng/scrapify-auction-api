@@ -102,7 +102,7 @@ Route::prefix('v1')->group(function () {
             Route::get('admin/integration-settings', [IntegrationSettingsController::class, 'show'])->middleware('permission:platform.config.update');
             Route::put('admin/integration-settings', [IntegrationSettingsController::class, 'update'])->middleware('permission:platform.config.update');
             Route::post('admin/integration-settings/test-verification', [BusinessVerificationController::class, 'testProvider'])->middleware('permission:platform.config.update');
-            Route::post('admin/integration-settings/test-cashfree-payment', [IntegrationSettingsController::class, 'testCashfreePayment'])->middleware('permission:platform.config.update');
+
             Route::get('admin/registration-promotions', [RegistrationPromotionController::class, 'index'])->middleware('permission:platform.config.update');
             Route::post('admin/registration-promotions', [RegistrationPromotionController::class, 'store'])->middleware('permission:platform.config.update');
             Route::patch('admin/registration-promotions/{promotion}', [RegistrationPromotionController::class, 'update'])->middleware('permission:platform.config.update');

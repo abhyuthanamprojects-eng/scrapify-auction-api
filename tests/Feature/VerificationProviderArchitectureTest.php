@@ -136,19 +136,6 @@ class VerificationProviderArchitectureTest extends TestCase
             && $request->header('authorization') === ['fresh-token-2']);
     }
 
-    public function test_cashfree_cannot_be_selected_as_verification_provider(): void
-    {
-        $user = $this->user();
-        Sanctum::actingAs($user);
-        GeneralSetting::updateOrCreate(['key' => 'gst_verification_provider'], ['value' => 'cashfree']);
-        Http::fake([
-            '*test-api.sandbox.co.in/*' => Http::response([], 200),
-        ]);
-
-        $this->postJson('/api/v1/kyb/gstin/verify', ['gstin' => '29AAICP2912R1ZR'])
-            ->assertStatus(422)->assertJsonPath('error.code', 'PROVIDER_INVALID');
-    }
-
     public function test_admin_settings_mask_secrets(): void
     {
         $admin = User::factory()->create(['role' => 'admin', 'status' => 'active']);

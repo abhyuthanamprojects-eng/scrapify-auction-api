@@ -32,15 +32,6 @@ return [
         'timeout' => env('RAZORPAY_TIMEOUT', 30),
     ],
 
-    'cashfree_pg' => [
-        'enabled' => env('CASHFREE_PG_ENABLED', false),
-        'environment' => env('CASHFREE_PG_ENV', 'test'),
-        'client_id' => env('CASHFREE_PG_CLIENT_ID'),
-        'client_secret' => env('CASHFREE_PG_CLIENT_SECRET'),
-        'api_version' => env('CASHFREE_PG_API_VERSION', '2025-01-01'),
-        'timeout' => env('CASHFREE_PG_TIMEOUT', 30),
-    ],
-
     'sandbox_verification' => [
         'enabled' => env('SANDBOX_VERIFICATION_ENABLED', true),
         'environment' => env('SANDBOX_VERIFICATION_ENV', 'test'),
