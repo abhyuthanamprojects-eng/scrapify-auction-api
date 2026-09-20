@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\Vendor;
 use App\Services\AuditLogger;
 use App\Services\RazorpayPaymentService;
+use App\Services\RegistrationPricingService;
 use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,19 +28,21 @@ class RazorpayController extends Controller
             'purpose' => ['required', Rule::in(['wallet_topup', 'order_payment', 'registration'])],
             'order_code' => ['required_if:purpose,order_payment', 'nullable', 'string'],
             'vendor_code' => ['required_if:purpose,registration', 'nullable', 'string'],
+            'promo_code' => ['sometimes', 'nullable', 'string', 'max:40'],
             'currency' => ['sometimes', 'string', 'size:3'],
             'notes' => ['sometimes', 'array'],
         ]);
 
-        $amountPaise = (int) round((float) $data['amount'] * 100);
         $currency = $data['currency'] ?? 'INR';
-
-        $result = ['payment_id' => $payment->id, 'status' => 'success', 'amount_inr' => $amountInr];
 
         if ($data['purpose'] === 'registration') {
             $vendor = Vendor::where('code', $data['vendor_code'])->firstOrFail();
             abort_unless($request->user()->vendor_id === $vendor->id || $request->user()->isAdmin(), 403);
+            $pricing = app(RegistrationPricingService::class)->quoteForVendor($vendor, $data['promo_code'] ?? null);
+            $data['amount'] = $pricing['payable_amount'];
         }
+
+        $amountPaise = (int) round((float) $data['amount'] * 100);
 
         $receipt = match ($data['purpose']) {
             'wallet_topup' => 'wlt_' . $request->user()->id . '_' . now()->format('YmdHis'),
@@ -54,6 +57,7 @@ class RazorpayController extends Controller
                     'user_id' => (string) $request->user()->id,
                     'purpose' => $data['purpose'],
                     ...($data['purpose'] === 'registration' ? ['vendor_code' => $data['vendor_code']] : []),
+                    ...($data['purpose'] === 'registration' && filled($data['promo_code'] ?? null) ? ['promo_code' => strtoupper(trim($data['promo_code']))] : []),
                 ],
             ));
 
@@ -98,6 +102,7 @@ class RazorpayController extends Controller
             'purpose' => ['required', Rule::in(['wallet_topup', 'order_payment', 'registration'])],
             'order_code' => ['required_if:purpose,order_payment', 'nullable', 'string'],
             'vendor_code' => ['required_if:purpose,registration', 'nullable', 'string'],
+            'promo_code' => ['sometimes', 'nullable', 'string', 'max:40'],
         ]);
 
         if (! $this->razorpay->verifySignature($data['razorpay_order_id'], $data['razorpay_payment_id'], $data['razorpay_signature'])) {
@@ -134,8 +139,13 @@ class RazorpayController extends Controller
                 'razorpay_order_id' => $data['razorpay_order_id'],
                 'razorpay_signature' => $data['razorpay_signature'],
                 'purpose' => $data['purpose'],
+                ...($data['purpose'] === 'registration' && filled($data['promo_code'] ?? null)
+                    ? ['promo_code' => strtoupper(trim($data['promo_code']))]
+                    : []),
             ],
         ]);
+
+        $result = ['payment_id' => $payment->id, 'status' => 'success', 'amount_inr' => $amountInr];
 
         if ($data['purpose'] === 'registration') {
             $vendor = Vendor::where('code', $data['vendor_code'])->firstOrFail();
@@ -150,6 +160,15 @@ class RazorpayController extends Controller
                 'registration_payment_ref' => $data['razorpay_payment_id'],
                 'registration_payment_status' => 'success',
             ]);
+            if (filled($data['promo_code'] ?? null)) {
+                $promotion = \App\Models\RegistrationPromotion::query()
+                    ->where('code', strtoupper(trim($data['promo_code'])))
+                    ->lockForUpdate()
+                    ->first();
+                if ($promotion) {
+                    $promotion->increment('redemption_count');
+                }
+            }
             $result['vendor_code'] = $vendor->code;
         }
 

@@ -40,7 +40,7 @@ class RegistrationPromotionController extends Controller
     private function validated(Request $request, ?RegistrationPromotion $promotion = null): array
     {
         $data = $request->validate([
-            'code' => ['required', 'string', 'max:40', 'regex:/^[A-Za-z0-9_-]+$/', Rule::unique('registration_promotions', 'code')->ignore($promotion?->id)],
+            'code' => ['required', 'string', 'max:40', 'regex:/^[A-Za-z0-9][A-Za-z0-9 _-]*$/', Rule::unique('registration_promotions', 'code')->ignore($promotion?->id)],
             'discount_type' => ['required', Rule::in(['fixed', 'percentage'])],
             'discount_value' => ['required', 'numeric', 'gt:0'],
             'minimum_amount' => ['sometimes', 'numeric', 'min:0'],
