@@ -227,7 +227,6 @@ Route::prefix('v1')->group(function () {
             Route::post('vendors/{code}/submit-kyc', [VendorController::class, 'submitKyc']);
             Route::post('vendors/{code}/resubmit-kyc', [VendorController::class, 'resubmitKyc']);
             Route::get('vendors/{code}/kyc-status', [VendorController::class, 'kycStatus']);
-            Route::post('vendors/{code}/registration-payment', [VendorController::class, 'recordRegistrationPayment']);
             Route::post('vendors/{code}/registration-payment/quote', [VendorController::class, 'quoteRegistrationPayment']);
         });
         // Document access supports both a vendor's public workspace and

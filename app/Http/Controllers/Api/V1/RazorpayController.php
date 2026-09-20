@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\Order;
+use App\Models\Vendor;
 use App\Services\AuditLogger;
 use App\Services\RazorpayPaymentService;
 use App\Services\WalletService;
@@ -25,12 +26,20 @@ class RazorpayController extends Controller
             'amount' => ['required', 'numeric', 'min:1'],
             'purpose' => ['required', Rule::in(['wallet_topup', 'order_payment', 'registration'])],
             'order_code' => ['required_if:purpose,order_payment', 'nullable', 'string'],
+            'vendor_code' => ['required_if:purpose,registration', 'nullable', 'string'],
             'currency' => ['sometimes', 'string', 'size:3'],
             'notes' => ['sometimes', 'array'],
         ]);
 
         $amountPaise = (int) round((float) $data['amount'] * 100);
         $currency = $data['currency'] ?? 'INR';
+
+        $result = ['payment_id' => $payment->id, 'status' => 'success', 'amount_inr' => $amountInr];
+
+        if ($data['purpose'] === 'registration') {
+            $vendor = Vendor::where('code', $data['vendor_code'])->firstOrFail();
+            abort_unless($request->user()->vendor_id === $vendor->id || $request->user()->isAdmin(), 403);
+        }
 
         $receipt = match ($data['purpose']) {
             'wallet_topup' => 'wlt_' . $request->user()->id . '_' . now()->format('YmdHis'),
@@ -44,6 +53,7 @@ class RazorpayController extends Controller
                 [
                     'user_id' => (string) $request->user()->id,
                     'purpose' => $data['purpose'],
+                    ...($data['purpose'] === 'registration' ? ['vendor_code' => $data['vendor_code']] : []),
                 ],
             ));
 
@@ -87,6 +97,7 @@ class RazorpayController extends Controller
             'razorpay_signature' => ['required', 'string'],
             'purpose' => ['required', Rule::in(['wallet_topup', 'order_payment', 'registration'])],
             'order_code' => ['required_if:purpose,order_payment', 'nullable', 'string'],
+            'vendor_code' => ['required_if:purpose,registration', 'nullable', 'string'],
         ]);
 
         if (! $this->razorpay->verifySignature($data['razorpay_order_id'], $data['razorpay_payment_id'], $data['razorpay_signature'])) {
@@ -126,7 +137,21 @@ class RazorpayController extends Controller
             ],
         ]);
 
-        $result = ['payment_id' => $payment->id, 'status' => 'success', 'amount_inr' => $amountInr];
+        if ($data['purpose'] === 'registration') {
+            $vendor = Vendor::where('code', $data['vendor_code'])->firstOrFail();
+            abort_unless($request->user()->vendor_id === $vendor->id || $request->user()->isAdmin(), 403);
+            $payment->update([
+                'payable_type' => Vendor::class,
+                'payable_id' => $vendor->id,
+            ]);
+            $vendor->update([
+                'registration_step' => 4,
+                'registration_payment_method' => 'Razorpay',
+                'registration_payment_ref' => $data['razorpay_payment_id'],
+                'registration_payment_status' => 'success',
+            ]);
+            $result['vendor_code'] = $vendor->code;
+        }
 
         if ($data['purpose'] === 'wallet_topup' && $amountInr > 0) {
             $wallet = $this->wallets->forUser($request->user());
