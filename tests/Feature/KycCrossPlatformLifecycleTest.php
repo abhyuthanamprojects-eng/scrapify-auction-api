@@ -21,9 +21,9 @@ class KycCrossPlatformLifecycleTest extends TestCase
         parent::setUp();
         $this->seed();
         Storage::fake('public');
-        config()->set('services.sandbox_verification.enabled', true);
-        config()->set('services.sandbox_verification.api_key', 'sandbox-key');
-        config()->set('services.sandbox_verification.api_secret', 'sandbox-secret');
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'sandbox_verification_enabled'], ['value' => '1']);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'sandbox_verification_api_key'], ['value' => \Illuminate\Support\Facades\Crypt::encryptString('sandbox-key')]);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'sandbox_verification_api_secret'], ['value' => \Illuminate\Support\Facades\Crypt::encryptString('sandbox-secret')]);
         Http::fake([
             'https://api.postalpincode.in/pincode/400030' => Http::response([[
                 'Status' => 'Success',

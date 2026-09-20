@@ -25,7 +25,7 @@ final class SandboxVerificationProvider implements BusinessVerificationProviderI
 
     public function isEnabled(): bool
     {
-        return GeneralSettings::bool('sandbox_verification_enabled', (bool) config('services.sandbox_verification.enabled', true));
+        return GeneralSettings::bool('sandbox_verification_enabled', true);
     }
 
     public function isConfigured(string $verificationType): bool
@@ -234,35 +234,35 @@ final class SandboxVerificationProvider implements BusinessVerificationProviderI
     {
         $configured = GeneralSettings::string('sandbox_verification_base_url', '');
         if ($configured !== '') return rtrim($configured, '/');
-        return GeneralSettings::string('sandbox_verification_environment', (string) config('services.sandbox_verification.environment', 'test')) === 'live'
+        return GeneralSettings::string('sandbox_verification_environment', 'test') === 'live'
             ? 'https://api.sandbox.co.in'
             : 'https://test-api.sandbox.co.in';
     }
 
     private function apiKey(): ?string
     {
-        return GeneralSettings::secret('sandbox_verification_api_key', config('services.sandbox_verification.api_key'));
+        return GeneralSettings::secret('sandbox_verification_api_key');
     }
 
     private function apiSecret(): ?string
     {
-        return GeneralSettings::secret('sandbox_verification_api_secret', config('services.sandbox_verification.api_secret'));
+        return GeneralSettings::secret('sandbox_verification_api_secret');
     }
 
     private function apiVersion(): string
     {
-        $version = GeneralSettings::string('sandbox_verification_api_version', (string) config('services.sandbox_verification.api_version', '1.0.0'));
+        $version = GeneralSettings::string('sandbox_verification_api_version', '1.0.0');
         return $version === '1.0' ? '1.0.0' : $version;
     }
 
     private function timeout(): int
     {
-        return max(5, min(120, GeneralSettings::int('sandbox_verification_timeout', (int) config('services.sandbox_verification.timeout', 30))));
+        return max(5, min(120, GeneralSettings::int('sandbox_verification_timeout', 30)));
     }
 
     private function tokenCacheKey(): string
     {
-        $environment = GeneralSettings::string('sandbox_verification_environment', (string) config('services.sandbox_verification.environment', 'test'));
+        $environment = GeneralSettings::string('sandbox_verification_environment', 'test');
         return 'verification:sandbox:token:'.$environment.':'.hash('sha256', (string) $this->apiKey());
     }
 

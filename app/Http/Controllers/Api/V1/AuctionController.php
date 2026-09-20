@@ -156,7 +156,13 @@ class AuctionController extends Controller
             $owner = $ownerVendor->user;
         }
 
-        $auction = Auction::create(array_merge($this->attributes($data), [
+        $attrs = $this->attributes($data);
+
+        if (! $isStaff && $owner->vendor) {
+            $attrs['company'] = $owner->vendor->company_name;
+        }
+
+        $auction = Auction::create(array_merge($attrs, [
             'status' => $data['status'] ?? 'draft',
             'submitted_by' => $owner->id,
             'submitted_by_name' => $owner->name,
@@ -181,6 +187,13 @@ class AuctionController extends Controller
             'A closed or cancelled auction cannot be edited.',
         );
 
+        $isStaff = $request->user()->hasPermission('auctions.approve') || $request->user()->hasPermission('auctions.create_any');
+        abort_if(
+            ! $isStaff && $auction->status === 'pending_approval',
+            422,
+            'This auction is under admin review and cannot be edited. Wait for the review to complete.',
+        );
+
         abort_if(
             $auction->schedule_start && now()->greaterThanOrEqualTo($auction->schedule_start->copy()->subHours(GeneralSettings::int('auction_edit_lock_hours', 3))),
             422,
@@ -191,7 +204,13 @@ class AuctionController extends Controller
         if (array_key_exists('schedule_start', $data) && $auction->schedule_start && now()->greaterThanOrEqualTo($auction->schedule_start->copy()->subHours(GeneralSettings::int('auction_edit_lock_hours', 3)))) {
             abort(422, 'The auction start time cannot be changed after the edit lock begins.');
         }
-        $auction->update($this->attributes($data, partial: true));
+        $attrs = $this->attributes($data, partial: true);
+
+        if (! $isStaff && $request->user()->vendor) {
+            unset($attrs['company']);
+        }
+
+        $auction->update($attrs);
 
         if (array_key_exists('sub_lots', $data)) {
             $auction->lots()->delete();
@@ -275,12 +294,32 @@ class AuctionController extends Controller
             "Only a draft or sent-back auction can be submitted (status: {$auction->status}).",
         );
 
-        $auction->update(['status' => 'pending_approval', 'submitted_at' => now()]);
+        abort_unless($auction->category_id, 422, 'Category is required before submission.');
+
+        $isStaff = auth()->user()->hasPermission('auctions.approve') || auth()->user()->hasPermission('auctions.create_any');
+
+        if (! $isStaff && $auction->direction === 'forward') {
+            $latestUpload = $auction->templateUploads()->first();
+            abort_unless($latestUpload && $latestUpload->confirmed_at, 422, 'A confirmed material list is required for forward auctions before submission.');
+        }
+
+        $newVersion = $auction->submission_version + 1;
+        $isResubmission = $auction->submission_version > 0;
+
+        $auction->update([
+            'status' => 'pending_approval',
+            'submitted_at' => now(),
+            'submission_version' => $newVersion,
+        ]);
+
+        $action = $isResubmission ? "Resubmitted auction {$auction->code} (v{$newVersion})" : "Submitted auction {$auction->code} for approval";
+        AuditLogger::write($action, 'Auction', $auction->code);
+
         app(\App\Services\NotificationService::class)->notifyAdmins(
             'AUCTION_REVIEW_REQUIRED',
             'Auction approval required',
-            "{$auction->title} was submitted for approval.",
-            ['auction_code' => $auction->code, 'auction_id' => $auction->id],
+            "{$auction->title} was ".($isResubmission ? 'resubmitted' : 'submitted').' for approval.',
+            ['auction_code' => $auction->code, 'auction_id' => $auction->id, 'submission_version' => $newVersion],
             "auction:{$auction->id}:approval:{$auction->submitted_at?->timestamp}",
         );
 
@@ -289,15 +328,65 @@ class AuctionController extends Controller
 
     public function approve(Request $request, string $code): AuctionResource
     {
+        $data = $request->validate([
+            'documents_verified' => ['required', 'boolean', 'accepted'],
+            'remarks' => ['sometimes', 'nullable', 'string', 'max:2000'],
+        ]);
+
         $auction = Auction::where('code', $code)->firstOrFail();
 
         abort_unless($auction->status === 'pending_approval', 422, 'This auction is not awaiting approval.');
 
+        $currentVersion = max($auction->submission_version, 1);
+
+        if ($auction->documents()->where('submission_version', $currentVersion)->exists()) {
+            $requiredDocs = \App\Models\AuctionDocument::requiredDocsForDirection($auction->direction);
+            $uploaded = $auction->documents()
+                ->where('submission_version', $currentVersion)
+                ->get()
+                ->keyBy('doc_type');
+
+            $unverified = [];
+            foreach ($requiredDocs as $docType => $isRequired) {
+                if (! $isRequired) {
+                    continue;
+                }
+                $doc = $uploaded->get($docType);
+                if (! $doc || $doc->status !== 'verified') {
+                    $unverified[] = $docType;
+                }
+            }
+
+            if ($auction->direction === 'forward') {
+                $latestUpload = $auction->templateUploads()->first();
+                if (! $latestUpload || ! $latestUpload->confirmed_at) {
+                    $unverified[] = 'material_list';
+                }
+            }
+
+            abort_if(! empty($unverified), 422, 'Required documents have not been verified: '.implode(', ', array_unique($unverified)).'. Review all required documents before approving.');
+        }
+
         $auction->update([
             'status' => 'approved',
-            'review_comment' => null,
+            'review_comment' => $data['remarks'] ?? null,
             'reviewed_by' => $request->user()->id,
+            'approved_at' => now(),
+            'approved_submission_version' => $currentVersion,
         ]);
+
+        AuditLogger::write("Approved auction {$auction->code} (submission v{$currentVersion})", 'Auction', $auction->code);
+
+        if ($auction->submitted_by) {
+            app(\App\Services\NotificationService::class)->push(
+                \App\Models\User::find($auction->submitted_by),
+                'AUCTION_APPROVED',
+                'Auction approved',
+                "Your auction \"{$auction->title}\" has been approved.",
+                ['auction_code' => $auction->code, 'auction_id' => $auction->id],
+                "auction:{$auction->id}:approved",
+            );
+        }
 
         broadcast(new AuctionStateChanged($auction, 'approved'));
 
@@ -315,6 +404,19 @@ class AuctionController extends Controller
             'reviewed_by' => $request->user()->id,
         ]);
 
+        AuditLogger::write("Requested changes for auction {$auction->code}: {$data['comment']}", 'Auction', $auction->code);
+
+        if ($auction->submitted_by) {
+            app(\App\Services\NotificationService::class)->push(
+                \App\Models\User::find($auction->submitted_by),
+                'AUCTION_CHANGES_REQUESTED',
+                'Auction changes requested',
+                "Changes have been requested for your auction \"{$auction->title}\".",
+                ['auction_code' => $auction->code, 'auction_id' => $auction->id, 'comment' => $data['comment']],
+                "auction:{$auction->id}:sendback:{$auction->updated_at->timestamp}",
+            );
+        }
+
         return new AuctionResource($auction);
     }
 
@@ -328,6 +430,19 @@ class AuctionController extends Controller
             'review_comment' => $data['comment'],
             'reviewed_by' => $request->user()->id,
         ]);
+
+        AuditLogger::write("Rejected auction {$auction->code}: {$data['comment']}", 'Auction', $auction->code);
+
+        if ($auction->submitted_by) {
+            app(\App\Services\NotificationService::class)->push(
+                \App\Models\User::find($auction->submitted_by),
+                'AUCTION_REJECTED',
+                'Auction rejected',
+                "Your auction \"{$auction->title}\" has been rejected.",
+                ['auction_code' => $auction->code, 'auction_id' => $auction->id, 'comment' => $data['comment']],
+                "auction:{$auction->id}:rejected",
+            );
+        }
 
         return new AuctionResource($auction);
     }
@@ -973,7 +1088,7 @@ class AuctionController extends Controller
         return $request->validate([
             'title' => [$r, 'string', 'max:200'],
             'description' => ['sometimes', 'nullable', 'string'],
-            'company' => [$r, 'string', 'max:180'],
+            'company' => ['sometimes', 'string', 'max:180'],
             'client_code' => ['sometimes', 'nullable', 'string', 'max:80'],
             'organization_code' => ['sometimes', 'nullable', 'string', 'exists:organizations,code'],
             'plant' => ['sometimes', 'nullable', 'string', 'max:180'],

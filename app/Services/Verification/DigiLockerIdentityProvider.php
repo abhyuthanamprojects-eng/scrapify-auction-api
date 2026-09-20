@@ -21,7 +21,7 @@ final class DigiLockerIdentityProvider implements IdentityVerificationProviderIn
 
     public function isEnabled(): bool
     {
-        return GeneralSettings::bool('digilocker_enabled', (bool) config('services.digilocker.enabled', false));
+        return GeneralSettings::bool('digilocker_enabled', false);
     }
 
     public function isConfigured(): bool
@@ -162,17 +162,17 @@ final class DigiLockerIdentityProvider implements IdentityVerificationProviderIn
 
     private function clientId(): ?string
     {
-        return GeneralSettings::secret('digilocker_client_id', config('services.digilocker.client_id'));
+        return GeneralSettings::secret('digilocker_client_id');
     }
 
     private function clientSecret(): ?string
     {
-        return GeneralSettings::secret('digilocker_client_secret', config('services.digilocker.client_secret'));
+        return GeneralSettings::secret('digilocker_client_secret');
     }
 
     private function baseUrl(): string
     {
-        $env = GeneralSettings::string('digilocker_environment', (string) config('services.digilocker.environment', 'sandbox'));
+        $env = GeneralSettings::string('digilocker_environment', 'sandbox');
 
         return match ($env) {
             'production' => 'https://digilocker.meripehchaan.gov.in',
@@ -182,11 +182,11 @@ final class DigiLockerIdentityProvider implements IdentityVerificationProviderIn
 
     private function scopes(): string
     {
-        return GeneralSettings::string('digilocker_scopes', (string) config('services.digilocker.scopes', 'openid'));
+        return GeneralSettings::string('digilocker_scopes', 'openid');
     }
 
     private function timeout(): int
     {
-        return max(5, min(120, GeneralSettings::int('digilocker_timeout', (int) config('services.digilocker.timeout', 30))));
+        return max(5, min(120, GeneralSettings::int('digilocker_timeout', 30)));
     }
 }

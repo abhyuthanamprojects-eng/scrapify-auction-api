@@ -54,12 +54,17 @@ class AuctionTemplate extends Model
         return $query->where('status', 'active');
     }
 
-    public function scopeForCategory($query, int $categoryId, ?int $subcategoryId = null)
+    public function scopeForCategory($query, ?int $categoryId = null, ?int $subcategoryId = null)
     {
-        $query->where('category_id', $categoryId);
-        if ($subcategoryId) {
-            $query->where('subcategory_id', $subcategoryId);
-        }
+        $query->where(function ($q) use ($categoryId, $subcategoryId) {
+            if ($categoryId) {
+                $q->where('category_id', $categoryId);
+                if ($subcategoryId) {
+                    $q->where('subcategory_id', $subcategoryId);
+                }
+            }
+            $q->orWhereNull('category_id');
+        })->orderByRaw('category_id IS NULL');
 
         return $query;
     }

@@ -31,30 +31,30 @@ class IntegrationSettingsController extends Controller
         return response()->json([
             'firebase_api_key' => GeneralSettings::string('firebase_api_key', ''),
             'firebase_auth_domain' => GeneralSettings::string('firebase_auth_domain', ''),
-            'firebase_project_id' => GeneralSettings::string('firebase_project_id', (string) config('services.google.firebase_project_id', '')),
+            'firebase_project_id' => GeneralSettings::string('firebase_project_id', ''),
             'firebase_storage_bucket' => GeneralSettings::string('firebase_storage_bucket', ''),
             'firebase_messaging_sender_id' => GeneralSettings::string('firebase_messaging_sender_id', ''),
             'firebase_app_id' => GeneralSettings::string('firebase_app_id', ''),
-            'google_client_id' => GeneralSettings::string('google_client_id', (string) config('services.google.client_id', '')),
-            'razorpay_enabled' => GeneralSettings::bool('razorpay_enabled', (bool) config('services.razorpay.enabled', false)),
-            'razorpay_environment' => GeneralSettings::string('razorpay_environment', (string) config('services.razorpay.environment', 'test')),
-            'razorpay_key_id' => $this->masked(GeneralSettings::secret('razorpay_key_id', config('services.razorpay.key_id'))),
-            'razorpay_key_secret' => $this->masked(GeneralSettings::secret('razorpay_key_secret', config('services.razorpay.key_secret'))),
-            'razorpay_timeout' => GeneralSettings::int('razorpay_timeout', (int) config('services.razorpay.timeout', 30)),
-            'sandbox_verification_enabled' => GeneralSettings::bool('sandbox_verification_enabled', (bool) config('services.sandbox_verification.enabled', true)),
-            'sandbox_verification_environment' => GeneralSettings::string('sandbox_verification_environment', (string) config('services.sandbox_verification.environment', 'test')),
-            'sandbox_verification_api_key' => $this->masked(GeneralSettings::secret('sandbox_verification_api_key', config('services.sandbox_verification.api_key'))),
-            'sandbox_verification_api_secret' => $this->masked(GeneralSettings::secret('sandbox_verification_api_secret', config('services.sandbox_verification.api_secret'))),
-            'sandbox_verification_base_url' => GeneralSettings::string('sandbox_verification_base_url', (string) config('services.sandbox_verification.base_url', '')),
-            'sandbox_verification_api_version' => GeneralSettings::string('sandbox_verification_api_version', (string) config('services.sandbox_verification.api_version', '1.0.0')),
-            'sandbox_verification_timeout' => GeneralSettings::int('sandbox_verification_timeout', (int) config('services.sandbox_verification.timeout', 30)),
-            'digilocker_enabled' => GeneralSettings::bool('digilocker_enabled', (bool) config('services.digilocker.enabled', false)),
-            'digilocker_environment' => GeneralSettings::string('digilocker_environment', (string) config('services.digilocker.environment', 'sandbox')),
-            'digilocker_client_id' => $this->masked(GeneralSettings::secret('digilocker_client_id', config('services.digilocker.client_id'))),
-            'digilocker_client_secret' => $this->masked(GeneralSettings::secret('digilocker_client_secret', config('services.digilocker.client_secret'))),
-            'digilocker_redirect_uri' => GeneralSettings::string('digilocker_redirect_uri', (string) config('services.digilocker.redirect_uri', '')),
-            'digilocker_scopes' => GeneralSettings::string('digilocker_scopes', (string) config('services.digilocker.scopes', 'openid')),
-            'digilocker_timeout' => GeneralSettings::int('digilocker_timeout', (int) config('services.digilocker.timeout', 30)),
+            'google_client_id' => GeneralSettings::string('google_client_id', ''),
+            'razorpay_enabled' => GeneralSettings::bool('razorpay_enabled', false),
+            'razorpay_environment' => GeneralSettings::string('razorpay_environment', 'test'),
+            'razorpay_key_id' => $this->masked(GeneralSettings::secret('razorpay_key_id')),
+            'razorpay_key_secret' => $this->masked(GeneralSettings::secret('razorpay_key_secret')),
+            'razorpay_timeout' => GeneralSettings::int('razorpay_timeout', 30),
+            'sandbox_verification_enabled' => GeneralSettings::bool('sandbox_verification_enabled', false),
+            'sandbox_verification_environment' => GeneralSettings::string('sandbox_verification_environment', 'test'),
+            'sandbox_verification_api_key' => $this->masked(GeneralSettings::secret('sandbox_verification_api_key')),
+            'sandbox_verification_api_secret' => $this->masked(GeneralSettings::secret('sandbox_verification_api_secret')),
+            'sandbox_verification_base_url' => GeneralSettings::string('sandbox_verification_base_url', ''),
+            'sandbox_verification_api_version' => GeneralSettings::string('sandbox_verification_api_version', '1.0.0'),
+            'sandbox_verification_timeout' => GeneralSettings::int('sandbox_verification_timeout', 30),
+            'digilocker_enabled' => GeneralSettings::bool('digilocker_enabled', false),
+            'digilocker_environment' => GeneralSettings::string('digilocker_environment', 'sandbox'),
+            'digilocker_client_id' => $this->masked(GeneralSettings::secret('digilocker_client_id')),
+            'digilocker_client_secret' => $this->masked(GeneralSettings::secret('digilocker_client_secret')),
+            'digilocker_redirect_uri' => GeneralSettings::string('digilocker_redirect_uri', ''),
+            'digilocker_scopes' => GeneralSettings::string('digilocker_scopes', 'openid'),
+            'digilocker_timeout' => GeneralSettings::int('digilocker_timeout', 30),
             'mail_mailer' => GeneralSettings::string('mail_mailer', (string) config('mail.default', 'smtp')),
             'mail_host' => GeneralSettings::string('mail_host', (string) config('mail.mailers.smtp.host', '')),
             'mail_port' => GeneralSettings::int('mail_port', (int) config('mail.mailers.smtp.port', 587)),
@@ -150,15 +150,7 @@ class IntegrationSettingsController extends Controller
     private function incomingOrStoredSecret(string $key, array $data): ?string
     {
         if (array_key_exists($key, $data) && filled($data[$key]) && ! $this->looksMasked((string) $data[$key])) return (string) $data[$key];
-        $fallbacks = [
-            'razorpay_key_id' => config('services.razorpay.key_id'),
-            'razorpay_key_secret' => config('services.razorpay.key_secret'),
-            'sandbox_verification_api_key' => config('services.sandbox_verification.api_key'),
-            'sandbox_verification_api_secret' => config('services.sandbox_verification.api_secret'),
-            'digilocker_client_id' => config('services.digilocker.client_id'),
-            'digilocker_client_secret' => config('services.digilocker.client_secret'),
-        ];
-        return GeneralSettings::secret($key, $fallbacks[$key] ?? null);
+        return GeneralSettings::secret($key);
     }
 
     private function looksMasked(string $value): bool

@@ -154,6 +154,7 @@ class EnterpriseAuctionIntegrationTest extends TestCase
             'company' => 'Tata Motors Jamshedpur Works',
             'direction' => 'forward',
             'lot_type' => 'single',
+            'category_id' => \App\Models\Category::first()->id,
             'reserve_price' => 4500000.00,
             'starting_price' => 3800000.00,
             'bid_increment' => 25000.00,
@@ -170,7 +171,9 @@ class EnterpriseAuctionIntegrationTest extends TestCase
         $submitResponse->assertStatus(200);
 
         // 3. Admin Verification & Approval
-        $approveResponse = $this->postJson("/api/v1/auctions/{$code}/approve");
+        $approveResponse = $this->postJson("/api/v1/auctions/{$code}/approve", [
+            'documents_verified' => true,
+        ]);
         $approveResponse->assertStatus(200);
 
         // 4. Publish

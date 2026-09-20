@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Auction;
+use App\Models\Category;
 use App\Models\GatePass;
 use App\Models\InspectionBooking;
 use App\Models\User;
@@ -118,12 +119,16 @@ class FullPlatformEndToEndFlowTest extends TestCase
             ->assertJsonPath('document.status', 'approved');
 
         // Admin approves Buyer Profile
-        $buyerApproveResponse = $this->postJson("/api/v1/vendors/{$buyerVendorCode}/approve");
+        $buyerApproveResponse = $this->postJson("/api/v1/vendors/{$buyerVendorCode}/approve", [
+            'documents_verified' => true,
+        ]);
         $buyerApproveResponse->assertStatus(200)
             ->assertJsonPath('data.status', 'approved');
 
         // Admin approves Seller Profile
-        $sellerApproveResponse = $this->postJson("/api/v1/vendors/{$sellerVendorCode}/approve");
+        $sellerApproveResponse = $this->postJson("/api/v1/vendors/{$sellerVendorCode}/approve", [
+            'documents_verified' => true,
+        ]);
         $sellerApproveResponse->assertStatus(200)
             ->assertJsonPath('data.status', 'approved');
 
@@ -146,6 +151,7 @@ class FullPlatformEndToEndFlowTest extends TestCase
             'company' => 'Tata Power Jamshedpur Works',
             'direction' => 'forward',
             'lot_type' => 'single',
+            'category_id' => Category::first()->id,
             'reserve_price' => 5200000.00,
             'starting_price' => 4500000.00,
             'bid_increment' => 50000.00,
@@ -174,7 +180,9 @@ class FullPlatformEndToEndFlowTest extends TestCase
             ->assertJsonPath('data.status', 'pending_approval');
 
         // Admin Approves Forward Auction
-        $fwdApprove = $this->postJson("/api/v1/auctions/{$fwdCode}/approve");
+        $fwdApprove = $this->postJson("/api/v1/auctions/{$fwdCode}/approve", [
+            'documents_verified' => true,
+        ]);
         $fwdApprove->assertStatus(200)
             ->assertJsonPath('data.status', 'approved');
 
@@ -189,6 +197,7 @@ class FullPlatformEndToEndFlowTest extends TestCase
             'company' => 'Scrapify Logistics Division',
             'direction' => 'reverse',
             'lot_type' => 'single',
+            'category_id' => Category::first()->id,
             'reserve_price' => 1800000.00,
             'starting_price' => 2200000.00,
             'bid_increment' => 20000.00,
@@ -202,7 +211,7 @@ class FullPlatformEndToEndFlowTest extends TestCase
 
         // Submit & Approve Reverse Auction
         $this->postJson("/api/v1/auctions/{$revCode}/submit")->assertStatus(200);
-        $this->postJson("/api/v1/auctions/{$revCode}/approve")->assertStatus(200);
+        $this->postJson("/api/v1/auctions/{$revCode}/approve", ['documents_verified' => true])->assertStatus(200);
         $this->postJson("/api/v1/auctions/{$revCode}/publish")->assertStatus(200)
             ->assertJsonPath('data.status', 'published');
 

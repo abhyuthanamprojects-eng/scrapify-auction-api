@@ -20,9 +20,9 @@ class VerificationProviderArchitectureTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config()->set('services.sandbox_verification.enabled', true);
-        config()->set('services.sandbox_verification.api_key', 'sandbox-key');
-        config()->set('services.sandbox_verification.api_secret', 'sandbox-secret');
+        GeneralSetting::updateOrCreate(['key' => 'sandbox_verification_enabled'], ['value' => '1']);
+        GeneralSetting::updateOrCreate(['key' => 'sandbox_verification_api_key'], ['value' => \Illuminate\Support\Facades\Crypt::encryptString('sandbox-key')]);
+        GeneralSetting::updateOrCreate(['key' => 'sandbox_verification_api_secret'], ['value' => \Illuminate\Support\Facades\Crypt::encryptString('sandbox-secret')]);
         Cache::flush();
     }
 

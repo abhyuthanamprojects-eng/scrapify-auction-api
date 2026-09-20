@@ -66,7 +66,7 @@ class OtpSettingsController extends Controller
 
     public function show(Msg91Service $msg91): JsonResponse
     {
-        $authKey = GeneralSettings::secret('msg91_auth_key', config('services.msg91.auth_key'));
+        $authKey = GeneralSettings::secret('msg91_auth_key');
 
         return response()->json([
             'email_enabled' => GeneralSettings::bool('email_enabled', true),
@@ -76,10 +76,10 @@ class OtpSettingsController extends Controller
             'msg91_enabled' => GeneralSettings::bool('msg91_enabled', true),
             'msg91_auth_key' => $this->maskSecret($authKey),
             'msg91_configured' => $msg91->isConfigured(),
-            'msg91_otp_template_id' => GeneralSettings::string('msg91_otp_template_id', (string) config('services.msg91.otp_template_id', '')),
-            'msg91_sms_template_id' => GeneralSettings::string('msg91_sms_template_id', (string) config('services.msg91.sms_template_id', '')),
-            'msg91_sender_id' => GeneralSettings::string('msg91_sender_id', (string) config('services.msg91.sender_id', '')),
-            'msg91_country_code' => GeneralSettings::string('msg91_country_code', (string) config('services.msg91.country_code', '91')),
+            'msg91_otp_template_id' => GeneralSettings::string('msg91_otp_template_id', ''),
+            'msg91_sms_template_id' => GeneralSettings::string('msg91_sms_template_id', ''),
+            'msg91_sender_id' => GeneralSettings::string('msg91_sender_id', ''),
+            'msg91_country_code' => GeneralSettings::string('msg91_country_code', '91'),
             'msg91_otp_length' => 4,
             'email_otp_length' => 4,
             'otp_expiry_minutes' => GeneralSettings::int('otp_expiry_minutes', 5),

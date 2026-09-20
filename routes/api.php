@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\V1\AuctionTemplateController;
 use App\Http\Controllers\Api\V1\BusinessVerificationController;
 use App\Http\Controllers\Api\V1\IdentityVerificationController;
 use App\Http\Controllers\Api\V1\RazorpayController;
+use App\Http\Controllers\Api\V1\AuctionDocumentController;
 use App\Http\Controllers\Api\V1\TermsConditionController;
 use Illuminate\Support\Facades\Route;
 
@@ -59,6 +60,51 @@ Route::prefix('v1')->group(function () {
     Route::post('auth/resend-otp', [AuthController::class, 'resendOtp']);
     Route::post('auth/google', [AuthController::class, 'googleSignIn']);
     Route::post('auth/verify-otp', [AuthController::class, 'verifyOtp']);
+
+    // --- TEMPORARY: Razorpay test endpoints (remove after testing) ---
+    if (app()->environment('local')) {
+        Route::post('test/razorpay/create-order', function (\Illuminate\Http\Request $request) {
+            $data = $request->validate([
+                'amount' => ['required', 'numeric', 'min:1'],
+                'purpose' => ['required', \Illuminate\Validation\Rule::in(['wallet_topup', 'registration'])],
+            ]);
+
+            $service = app(\App\Services\RazorpayPaymentService::class);
+            $amountPaise = (int) round((float) $data['amount'] * 100);
+            $receipt = 'test_' . now()->format('YmdHis');
+
+            $result = $service->createOrder($amountPaise, 'INR', $receipt, ['purpose' => $data['purpose'], 'test' => true]);
+
+            return response()->json(['data' => array_merge($result, ['prefill' => ['name' => 'Test User', 'email' => 'test@scrapify.in']])]);
+        });
+
+        Route::post('test/razorpay/verify', function (\Illuminate\Http\Request $request) {
+            $data = $request->validate([
+                'razorpay_order_id' => ['required', 'string'],
+                'razorpay_payment_id' => ['required', 'string'],
+                'razorpay_signature' => ['required', 'string'],
+                'purpose' => ['required', 'string'],
+            ]);
+
+            $service = app(\App\Services\RazorpayPaymentService::class);
+
+            if (! $service->verifySignature($data['razorpay_order_id'], $data['razorpay_payment_id'], $data['razorpay_signature'])) {
+                return response()->json(['error' => ['code' => 'SIGNATURE_MISMATCH', 'message' => 'Payment verification failed.']], 400);
+            }
+
+            $payment = [];
+            try { $payment = $service->fetchPayment($data['razorpay_payment_id']); } catch (\Throwable $e) {}
+
+            return response()->json(['data' => [
+                'status' => 'success',
+                'verified' => true,
+                'payment_id' => $data['razorpay_payment_id'],
+                'order_id' => $data['razorpay_order_id'],
+                'amount_inr' => isset($payment['amount']) ? (float) $payment['amount'] / 100 : null,
+                'method' => $payment['method'] ?? 'unknown',
+            ]]);
+        });
+    }
 
     /* -------------------------------------------------------------- public */
     // Reachable without a token: the public listing, the token-access page and
@@ -263,6 +309,16 @@ Route::prefix('v1')->group(function () {
         Route::get('auctions/{code}/template-upload/{uploadId}/download', [AuctionTemplateController::class, 'adminDownloadSource'])
             ->middleware('permission:auctions.approve');
         Route::get('auctions/{code}/parsed-items', [AuctionTemplateController::class, 'adminParsedItems'])
+            ->middleware('permission:auctions.approve');
+
+        /* auction documents — seller upload, admin review */
+        Route::post('auctions/{code}/documents', [AuctionDocumentController::class, 'upload'])
+            ->middleware(['permission:auctions.create', 'kyc.verified']);
+        Route::get('auctions/{code}/documents', [AuctionDocumentController::class, 'index']);
+        Route::get('auctions/{code}/documents/{id}/download', [AuctionDocumentController::class, 'download']);
+        Route::put('admin/auctions/{code}/documents/{id}/review', [AuctionDocumentController::class, 'review'])
+            ->middleware('permission:auctions.approve');
+        Route::get('admin/auctions/{code}/documents', [AuctionDocumentController::class, 'adminIndex'])
             ->middleware('permission:auctions.approve');
 
         /* admin category management */

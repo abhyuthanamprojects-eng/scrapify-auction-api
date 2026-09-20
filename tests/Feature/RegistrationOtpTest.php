@@ -32,12 +32,10 @@ class RegistrationOtpTest extends TestCase
 
     public function test_request_otp_uses_sms_provider_and_never_returns_a_debug_code(): void
     {
-        config([
-            'services.msg91.auth_key' => 'test-auth-key',
-            'services.msg91.otp_template_id' => 'test-template',
-            'services.msg91.sender_id' => 'TESTBR',
-            'services.msg91.country_code' => '91',
-        ]);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_auth_key'], ['value' => \Illuminate\Support\Facades\Crypt::encryptString('test-auth-key')]);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_otp_template_id'], ['value' => 'test-template']);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_sender_id'], ['value' => 'TESTBR']);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_country_code'], ['value' => '91']);
         Http::fake([
             'https://control.msg91.com/*' => Http::response(['type' => 'success'], 200),
         ]);
@@ -175,12 +173,10 @@ class RegistrationOtpTest extends TestCase
     public function test_registration_otp_purpose_cannot_be_replayed_as_login(): void
     {
         \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_otp_length'], ['value' => '6']);
-        config([
-            'services.msg91.auth_key' => 'test-auth-key',
-            'services.msg91.otp_template_id' => 'test-template',
-            'services.msg91.sender_id' => 'TESTBR',
-            'services.msg91.country_code' => '91',
-        ]);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_auth_key'], ['value' => \Illuminate\Support\Facades\Crypt::encryptString('test-auth-key')]);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_otp_template_id'], ['value' => 'test-template']);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_sender_id'], ['value' => 'TESTBR']);
+        \App\Models\GeneralSetting::updateOrCreate(['key' => 'msg91_country_code'], ['value' => '91']);
         Http::fake([
             'https://control.msg91.com/api/v5/otp/verify*' => Http::response(['type' => 'success'], 200),
         ]);

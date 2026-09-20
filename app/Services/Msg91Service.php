@@ -16,10 +16,10 @@ class Msg91Service
 
     public function __construct()
     {
-        $this->authKey = (string) GeneralSettings::secret('msg91_auth_key', config('services.msg91.auth_key'));
-        $this->templateId = GeneralSettings::string('msg91_otp_template_id', (string) config('services.msg91.otp_template_id', ''));
-        $this->senderId = GeneralSettings::string('msg91_sender_id', (string) config('services.msg91.sender_id', ''));
-        $this->countryCode = GeneralSettings::string('msg91_country_code', (string) config('services.msg91.country_code', '91'));
+        $this->authKey = (string) GeneralSettings::secret('msg91_auth_key');
+        $this->templateId = GeneralSettings::string('msg91_otp_template_id', '');
+        $this->senderId = GeneralSettings::string('msg91_sender_id', '');
+        $this->countryCode = GeneralSettings::string('msg91_country_code', '91');
     }
 
     public function isConfigured(): bool

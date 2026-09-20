@@ -321,7 +321,7 @@ class AuthController extends Controller
 
     private function verifyGoogleIdToken(string $idToken): ?array
     {
-        $projectId = \App\Services\GeneralSettings::string('firebase_project_id', (string) config('services.google.firebase_project_id'));
+        $projectId = \App\Services\GeneralSettings::string('firebase_project_id', '');
 
         try {
             // Decode the JWT payload without signature verification first

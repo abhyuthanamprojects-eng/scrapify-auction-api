@@ -22,6 +22,7 @@ class Auction extends Model
         'published_at' => 'datetime',
         'actual_started_at' => 'datetime',
         'closed_at' => 'datetime',
+        'approved_at' => 'datetime',
         'publish_channels' => 'array',
         'reserve_na' => 'boolean',
         'reserve_price' => 'decimal:2',
@@ -80,6 +81,11 @@ class Auction extends Model
     public function photos(): HasMany
     {
         return $this->hasMany(AuctionPhoto::class)->orderBy('sort_order');
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(AuctionDocument::class);
     }
 
     public function bids(): HasMany

@@ -659,17 +659,39 @@ class VendorController extends Controller
 
     public function approve(Request $request, string $code): VendorResource
     {
+        $data = $request->validate([
+            'documents_verified' => ['required', 'boolean', 'accepted'],
+            'verification_remarks' => ['sometimes', 'nullable', 'string', 'max:1000'],
+        ]);
+
         $vendor = Vendor::where('code', $code)->firstOrFail();
 
-        DB::transaction(function () use ($vendor, $request) {
+        $unreviewed = $vendor->documents()
+            ->where('required', true)
+            ->where('status', '!=', 'approved')
+            ->pluck('doc_key');
+
+        abort_if($unreviewed->isNotEmpty(), 422, 'Required documents have not been verified: '.$unreviewed->join(', ').'. Review all required documents before approving.');
+
+        DB::transaction(function () use ($vendor, $request, $data) {
             app(KycStatusService::class)->transition($vendor, KycStatusService::APPROVED, null, $request->user()->id);
 
-            // Provision or activate wallet
             if ($vendor->user) {
                 app(WalletService::class)->forUser($vendor->user);
             }
 
-            AuditLogger::write("Approved KYC and activated vendor {$vendor->company_name} ({$vendor->code})", 'Vendor', $vendor->code);
+            AuditLogger::write("Approved KYC and activated vendor {$vendor->company_name} ({$vendor->code})", 'Vendor', $vendor->code, [
+                'verification_remarks' => $data['verification_remarks'] ?? null,
+            ]);
+
+            app(\App\Services\NotificationService::class)->push(
+                $vendor->user,
+                'ACCOUNT_APPROVED',
+                'Account approved',
+                'Your account has been approved. You can now access all features.',
+                ['vendor_code' => $vendor->code],
+                "vendor:{$vendor->id}:approved",
+            );
         });
 
         return new VendorResource($vendor->fresh(['user', 'materials', 'documents']));
@@ -691,6 +713,17 @@ class VendorController extends Controller
                 $vendor->save();
             }
             AuditLogger::write("Rejected KYC for vendor {$vendor->company_name} ({$vendor->code}): {$data['reason']}", 'Vendor', $vendor->code);
+
+            if ($vendor->user) {
+                app(\App\Services\NotificationService::class)->push(
+                    $vendor->user,
+                    'ACCOUNT_CHANGES_REQUESTED',
+                    'Account verification update',
+                    "Your account verification was not approved: {$data['reason']}",
+                    ['vendor_code' => $vendor->code, 'reason' => $data['reason']],
+                    "vendor:{$vendor->id}:rejected:{$vendor->updated_at->timestamp}",
+                );
+            }
         });
 
         return new VendorResource($vendor->fresh(['user', 'materials', 'documents']));

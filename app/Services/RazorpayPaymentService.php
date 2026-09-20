@@ -71,32 +71,32 @@ final class RazorpayPaymentService
 
     public function isEnabled(): bool
     {
-        return GeneralSettings::bool('razorpay_enabled', (bool) config('services.razorpay.enabled', false));
+        return GeneralSettings::bool('razorpay_enabled', false);
     }
 
     private function ensureReady(): void
     {
         if (! $this->isEnabled()) {
-            throw new RuntimeException('Razorpay Payment Gateway is disabled.');
+            throw new RuntimeException('Razorpay Payment Gateway is disabled. Enable it from Admin Settings.');
         }
 
         if (! filled($this->keyId()) || ! filled($this->keySecret())) {
-            throw new RuntimeException('Razorpay credentials are not configured.');
+            throw new RuntimeException('Razorpay credentials are not configured. Set them from Admin Settings.');
         }
     }
 
     private function keyId(): ?string
     {
-        return GeneralSettings::secret('razorpay_key_id', config('services.razorpay.key_id'));
+        return GeneralSettings::secret('razorpay_key_id');
     }
 
     private function keySecret(): ?string
     {
-        return GeneralSettings::secret('razorpay_key_secret', config('services.razorpay.key_secret'));
+        return GeneralSettings::secret('razorpay_key_secret');
     }
 
     private function timeout(): int
     {
-        return max(5, min(120, GeneralSettings::int('razorpay_timeout', (int) config('services.razorpay.timeout', 30))));
+        return max(5, min(120, GeneralSettings::int('razorpay_timeout', 30)));
     }
 }
