@@ -22,6 +22,17 @@ class AuctionResource extends JsonResource
         $vendor = $user?->vendor;
         $participation = app(AuctionEligibilityService::class)->participationState($this->resource, $vendor);
         $isLive = in_array($this->status, ['live', 'extended', 'paused'], true);
+        $adminTerms = $this->currentTermsVersion?->rules['admin_terms'] ?? null;
+        if (! is_array($adminTerms)) {
+            $adminTerms = TermsCondition::active()
+                ->where('type', '!=', 'registration')
+                ->forCategory($this->category_id, $this->subcategory_id)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get(['id', 'title', 'content', 'type', 'applicable_to', 'category_id', 'sort_order'])
+                ->toArray();
+        }
+
         return [
             'id' => $this->code,
             'code' => $this->code,
@@ -70,11 +81,8 @@ class AuctionResource extends JsonResource
             'inspection_time' => $this->inspection_time,
             'inspection_location' => $this->inspection_location,
             'terms' => $this->terms,
-            'terms_conditions' => TermsCondition::active()
-                ->forCategory($this->category_id, $this->subcategory_id)
-                ->orderBy('sort_order')
-                ->orderBy('id')
-                ->get(['id', 'title', 'content', 'type', 'applicable_to', 'category_id', 'sort_order']),
+            'seller_terms' => $this->terms,
+            'terms_conditions' => $adminTerms,
             'terms_version' => $this->current_terms_version_id ? [
                 'id' => $this->current_terms_version_id,
                 'version' => $this->currentTermsVersion?->version,

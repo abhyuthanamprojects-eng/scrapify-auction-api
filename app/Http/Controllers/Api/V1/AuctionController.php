@@ -21,6 +21,7 @@ use App\Models\Category;
 use App\Models\InterestedBidder;
 use App\Models\Lot;
 use App\Models\Vendor;
+use App\Models\TermsCondition;
 use App\Services\EmdService;
 use App\Services\GeneralSettings;
 use App\Services\NotificationService;
@@ -525,6 +526,13 @@ class AuctionController extends Controller
                 'schedule_end' => $auction->schedule_end?->toIso8601String(),
                 'payment_terms' => $auction->payment_terms,
                 'lifting_period' => $auction->lifting_period,
+                'admin_terms' => TermsCondition::active()
+                    ->where('type', '!=', 'registration')
+                    ->forCategory($auction->category_id, $auction->subcategory_id)
+                    ->orderBy('sort_order')
+                    ->orderBy('id')
+                    ->get(['id', 'title', 'content', 'type', 'applicable_to', 'category_id', 'sort_order'])
+                    ->toArray(),
                 'auction_edit_lock_hours' => $config['auction_edit_lock_hours'],
                 'config_snapshot_id' => $snapshot->id,
             ],
@@ -1124,7 +1132,7 @@ class AuctionController extends Controller
             'inspection_time' => ['sometimes', 'nullable', 'string', 'max:60'],
             'inspection_location' => ['sometimes', 'nullable', 'string', 'max:180'],
             'guidelines_doc' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'terms' => ['sometimes', 'nullable', 'string'],
+            'terms' => ['sometimes', 'nullable', 'string', 'max:10000'],
             'payment_terms' => ['sometimes', 'nullable', 'string', 'max:255'],
             'lifting_period' => ['sometimes', 'nullable', 'string', 'max:30'],
             'lifting_unit' => ['sometimes', Rule::in(['Days', 'Weeks'])],

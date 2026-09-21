@@ -26,7 +26,24 @@ class TermsConditionSeeder extends Seeder
             ],
         ];
 
+        $auctionDefaults = [
+            [
+                'title' => 'Standard Auction Participation Terms',
+                'content' => "All participants must review the auction description, lot details, inspection information, payment terms, EMD requirements, and lifting conditions before participating. Bids and offers submitted through Scrapify Auctions are binding and must be made only by an authorised representative.\n\nThe platform may require KYC approval, EMD payment, and acceptance of the current auction terms before participation. The seller is responsible for accurate lot information and lawful authority to sell. Buyers are responsible for inspection, permits, transportation, taxes, payment, and timely lifting. Any discrepancy must be raised through the platform's documented process within the applicable period.",
+                'type' => 'auction',
+                'applicable_to' => 'all',
+                'sort_order' => 20,
+            ],
+        ];
+
         foreach ($registration as $tnc) {
+            TermsCondition::updateOrCreate(
+                ['title' => $tnc['title'], 'category_id' => null],
+                array_merge($tnc, ['is_active' => true, 'is_default' => true]),
+            );
+        }
+
+        foreach ($auctionDefaults as $tnc) {
             TermsCondition::updateOrCreate(
                 ['title' => $tnc['title'], 'category_id' => null],
                 array_merge($tnc, ['is_active' => true, 'is_default' => true]),
