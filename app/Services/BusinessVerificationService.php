@@ -12,6 +12,7 @@ use App\Services\Verification\BusinessEntityClassifier;
 use App\Services\Verification\NormalizedVerificationResult;
 use App\Services\Verification\VerificationProviderResolver;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -125,14 +126,22 @@ final class BusinessVerificationService
             return $this->applyGstin($verification, $this->storedResult($providerKey, 'GSTIN', $request->normalized_response));
         }
 
+        $lock = Cache::lock("kyb:provider:{$user->id}:GSTIN:{$hash}", 90);
+        if (! $lock->get()) {
+            throw new VerificationProviderException('RATE_LIMITED', 'This GSTIN verification is already in progress. Please wait before trying again.', 429, 5);
+        }
         $started = microtime(true);
-        $request->update(['status' => 'processing', 'started_at' => now(), 'request_reference' => (string) Str::uuid()]);
         try {
-            $result = $provider->verifyGstin($gstin, $businessName ?: $user->vendor?->company_name);
-            $this->completeRequest($request, $result, $started);
-            return $this->applyGstin($verification, $result);
-        } catch (Throwable $e) {
-            throw $this->recordProviderFailure($request, $verification, 'GSTIN', $started, $e);
+            $request->update(['status' => 'processing', 'started_at' => now(), 'request_reference' => (string) Str::uuid()]);
+            try {
+                $result = $provider->verifyGstin($gstin, $businessName ?: $user->vendor?->company_name);
+                $this->completeRequest($request, $result, $started);
+                return $this->applyGstin($verification, $result);
+            } catch (Throwable $e) {
+                throw $this->recordProviderFailure($request, $verification, 'GSTIN', $started, $e);
+            }
+        } finally {
+            $lock->release();
         }
     }
 
@@ -151,14 +160,22 @@ final class BusinessVerificationService
         $request = $this->providerRequest($user, $verification, 'BANK', $providerKey, $hash);
         if ($request->status === 'completed' && $request->normalized_response) return $this->applyBank($verification, $this->storedResult($providerKey, 'BANK', $request->normalized_response), $account, $ifsc);
 
+        $lock = Cache::lock("kyb:provider:{$user->id}:BANK:{$hash}", 90);
+        if (! $lock->get()) {
+            throw new VerificationProviderException('RATE_LIMITED', 'This bank verification is already in progress. Please wait before trying again.', 429, 5);
+        }
         $started = microtime(true);
-        $request->update(['status' => 'processing', 'started_at' => now(), 'request_reference' => (string) Str::uuid()]);
         try {
-            $result = $provider->verifyBankAccount($account, $ifsc, $name, $phone);
-            $this->completeRequest($request, $result, $started);
-            return $this->applyBank($verification, $result, $account, $ifsc);
-        } catch (Throwable $e) {
-            throw $this->recordProviderFailure($request, $verification, 'BANK', $started, $e);
+            $request->update(['status' => 'processing', 'started_at' => now(), 'request_reference' => (string) Str::uuid()]);
+            try {
+                $result = $provider->verifyBankAccount($account, $ifsc, $name, $phone);
+                $this->completeRequest($request, $result, $started);
+                return $this->applyBank($verification, $result, $account, $ifsc);
+            } catch (Throwable $e) {
+                throw $this->recordProviderFailure($request, $verification, 'BANK', $started, $e);
+            }
+        } finally {
+            $lock->release();
         }
     }
 

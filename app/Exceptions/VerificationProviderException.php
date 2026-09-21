@@ -10,6 +10,7 @@ final class VerificationProviderException extends RuntimeException
         public readonly string $errorCode,
         string $message,
         public readonly int $httpStatus = 503,
+        public readonly int $retryAfter = 0,
     ) {
         parent::__construct($message);
     }

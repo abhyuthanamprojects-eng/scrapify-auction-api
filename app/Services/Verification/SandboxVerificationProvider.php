@@ -196,7 +196,20 @@ final class SandboxVerificationProvider implements BusinessVerificationProviderI
         }
 
         if ($response->failed()) {
-            throw new VerificationProviderException($this->failureCode($response->status()), 'Sandbox verification returned an unsuccessful response.', $response->status() >= 500 ? 503 : 422);
+            $status = $response->status();
+            $errorCode = $this->failureCode($status);
+            $httpStatus = $status === 429 ? 429 : ($status >= 500 ? 503 : 422);
+            $retryAfter = $status === 429
+                ? max(30, (int) $response->header('Retry-After', 60))
+                : 0;
+            throw new VerificationProviderException(
+                $errorCode,
+                $status === 429
+                    ? 'The verification provider is temporarily rate-limited. Please wait before trying again.'
+                    : 'Sandbox verification returned an unsuccessful response.',
+                $httpStatus,
+                $retryAfter,
+            );
         }
 
         return $response->json() ?: [];

@@ -140,7 +140,15 @@ class BusinessVerificationController extends Controller
 
     private function providerError(VerificationProviderException $exception): JsonResponse
     {
-        return response()->json(['success' => false, 'message' => $exception->getMessage(), 'error' => ['code' => $exception->errorCode]], $exception->httpStatus);
+        $response = response()->json([
+            'success' => false,
+            'message' => $exception->getMessage(),
+            'error' => ['code' => $exception->errorCode],
+        ], $exception->httpStatus);
+        if ($exception->retryAfter > 0) {
+            $response->header('Retry-After', (string) $exception->retryAfter);
+        }
+        return $response;
     }
 
     private function adminData(BusinessVerification $v): array
