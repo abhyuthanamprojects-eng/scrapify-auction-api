@@ -9,6 +9,16 @@ class VendorResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $registrationPayment = $this->relationLoaded('payments')
+            ? $this->payments
+                ->filter(fn ($payment) => ($payment->meta['purpose'] ?? null) === 'vendor_registration'
+                    || ($payment->meta['purpose'] ?? null) === 'registration'
+                    || $payment->payable_type === \App\Models\Vendor::class)
+                ->sortByDesc('id')
+                ->first()
+            : null;
+        $paymentMeta = $registrationPayment?->meta ?? [];
+
         return [
             'id' => $this->code,
             'code' => $this->code,
@@ -76,9 +86,16 @@ class VendorResource extends JsonResource
             'reviewed_by' => $this->reviewed_by,
 
             'registration_payment' => [
-                'method' => $this->registration_payment_method,
-                'reference' => $this->registration_payment_ref,
-                'status' => $this->registration_payment_status,
+                'method' => $this->registration_payment_method ?: $registrationPayment?->method,
+                'reference' => $this->registration_payment_ref ?: $registrationPayment?->reference,
+                'status' => $this->registration_payment_status ?: $registrationPayment?->status ?: 'not_started',
+                'amount' => $registrationPayment?->amount !== null ? (float) $registrationPayment->amount : null,
+                'base_amount' => isset($paymentMeta['base_amount']) ? (float) $paymentMeta['base_amount'] : null,
+                'discount_amount' => isset($paymentMeta['discount_amount']) ? (float) $paymentMeta['discount_amount'] : null,
+                'offer_code' => $paymentMeta['promo_code'] ?? null,
+                'offer_description' => $paymentMeta['promo_description'] ?? null,
+                'gateway' => $registrationPayment?->gateway,
+                'paid_at' => $registrationPayment?->paid_at?->toIso8601String(),
             ],
 
             // Documents

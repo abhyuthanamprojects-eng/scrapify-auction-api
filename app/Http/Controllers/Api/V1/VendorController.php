@@ -22,10 +22,13 @@ use App\Services\Verification\KycStatusService;
 use App\Services\Verification\PANVerificationService;
 use App\Services\WalletService;
 use App\Services\PincodeLookupService;
+use App\Services\GeneralSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use App\Services\RegistrationPricingService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -37,7 +40,7 @@ class VendorController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
-        $q = Vendor::query()->with(['user', 'materials', 'documents']);
+        $q = Vendor::query()->with(['user', 'materials', 'documents', 'payments']);
 
         if ($status = $request->query('status')) {
             $q->whereIn('status', array_map('trim', explode(',', $status)));
@@ -61,7 +64,7 @@ class VendorController extends Controller
 
     public function show(string $code): VendorResource
     {
-        $vendor = Vendor::where('code', $code)->with(['user', 'materials', 'documents'])->firstOrFail();
+        $vendor = Vendor::where('code', $code)->with(['user', 'materials', 'documents', 'payments'])->firstOrFail();
 
         // Participation history for admin vendor inspection
         $vendor->participation = $vendor->bids()
@@ -83,6 +86,69 @@ class VendorController extends Controller
             ->values();
 
         return new VendorResource($vendor);
+    }
+
+    public function sendRegistrationPaymentEmail(Request $request, string $code): JsonResponse
+    {
+        $vendor = Vendor::where('code', $code)->with(['payments', 'user'])->firstOrFail();
+        abort_unless($vendor->registration_payment_status !== 'success', 422, 'Registration fee is already paid.');
+
+        $payment = $vendor->payments
+            ->filter(fn ($item) => in_array($item->meta['purpose'] ?? null, ['vendor_registration', 'registration'], true))
+            ->sortByDesc('id')
+            ->first();
+        $meta = $payment?->meta ?? [];
+        $amount = $payment?->amount ?? app(RegistrationPricingService::class)->quoteForVendor($vendor)['payable_amount'];
+        $brandName = trim(GeneralSettings::string('email_from_name', 'Scrapify Auctions')) ?: 'Scrapify Auctions';
+        $fromAddress = trim(GeneralSettings::string('email_from_address', (string) config('mail.from.address', '')));
+
+        if (! filter_var($vendor->email, FILTER_VALIDATE_EMAIL)) {
+            return response()->json(['error' => ['code' => 'VENDOR_EMAIL_INVALID', 'message' => 'This vendor does not have a valid email address.']], 422);
+        }
+        if (! GeneralSettings::bool('email_enabled', true)) {
+            return response()->json(['error' => ['code' => 'EMAIL_PROVIDER_DISABLED', 'message' => 'Email delivery is disabled in admin settings.']], 422);
+        }
+        if (app()->environment('production') && ! filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
+            return response()->json(['error' => ['code' => 'EMAIL_FROM_ADDRESS_INVALID', 'message' => 'Email delivery is not configured with a valid verified sender address.']], 422);
+        }
+
+        $workspace = $vendor->user?->role === 'seller' ? '/console' : '/dashboard';
+        $paymentUrl = config('scrapify.frontend_url').'/auth?mode=signin&redirect='.rawurlencode($workspace);
+        $offer = $meta['promo_code'] ?? null;
+        $discount = isset($meta['discount_amount']) ? (float) $meta['discount_amount'] : null;
+        $body = "Hello {$vendor->contact_name},\n\n"
+            . "Your Scrapify Auctions registration is awaiting the registration fee payment.\n\n"
+            . "Amount payable: ₹".number_format((float) $amount, 2)."\n"
+            . ($offer ? "Offer applied: {$offer}\n" : '')
+            . ($discount ? 'Discount: ₹'.number_format($discount, 2)."\n" : '')
+            . "Payment method: Razorpay\n\n"
+            . "Open the secure payment page: {$paymentUrl}\n\n"
+            . "Sign in with your registered account. Razorpay checkout will open from your registration workspace.\n\n"
+            . "Regards,\n{$brandName}";
+
+        try {
+            config([
+                'mail.default' => GeneralSettings::string('mail_mailer', (string) config('mail.default', 'smtp')),
+                'mail.mailers.smtp.host' => GeneralSettings::string('mail_host', (string) config('mail.mailers.smtp.host', '')),
+                'mail.mailers.smtp.port' => GeneralSettings::int('mail_port', (int) config('mail.mailers.smtp.port', 587)),
+                'mail.mailers.smtp.username' => GeneralSettings::secret('mail_username', config('mail.mailers.smtp.username')),
+                'mail.mailers.smtp.password' => GeneralSettings::secret('mail_password', config('mail.mailers.smtp.password')),
+                'mail.mailers.smtp.scheme' => GeneralSettings::string('mail_encryption', (string) config('mail.mailers.smtp.scheme', 'tls')),
+                'mail.from.address' => $fromAddress,
+                'mail.from.name' => $brandName,
+            ]);
+            Mail::raw($body, function ($message) use ($vendor, $brandName, $fromAddress): void {
+                $message->to($vendor->email)->subject($brandName.' registration fee payment');
+                if (filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
+                    $message->from($fromAddress, $brandName);
+                }
+            });
+        } catch (\Throwable $exception) {
+            Log::error('Registration payment email delivery failed', ['vendor_code' => $vendor->code, 'message' => $exception->getMessage()]);
+            return response()->json(['error' => ['code' => 'PAYMENT_EMAIL_FAILED', 'message' => 'Payment email could not be sent. Check the configured email provider.']], 502);
+        }
+
+        return response()->json(['data' => ['sent' => true, 'email' => $vendor->email, 'payment_url' => $paymentUrl]]);
     }
 
     /**

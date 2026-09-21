@@ -241,6 +241,8 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:vendors.view');
         Route::get('vendors/{code}', [VendorController::class, 'show'])
             ->middleware('permission:vendors.view');
+        Route::post('vendors/{code}/registration-payment/email', [VendorController::class, 'sendRegistrationPaymentEmail'])
+            ->middleware('permission:vendors.update');
         Route::patch('vendors/{code}', [VendorController::class, 'update'])
             ->middleware('permission:vendors.update');
         Route::post('vendors/{code}/approve', [VendorController::class, 'approve'])

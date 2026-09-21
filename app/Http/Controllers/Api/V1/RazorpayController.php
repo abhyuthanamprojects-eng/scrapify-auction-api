@@ -126,6 +126,14 @@ class RazorpayController extends Controller
         $amountInr = isset($paymentDetails['amount']) ? (float) $paymentDetails['amount'] / 100 : 0;
         $method = $paymentDetails['method'] ?? 'razorpay';
 
+        $registrationPricing = null;
+        $registrationVendor = null;
+        if ($data['purpose'] === 'registration') {
+            $registrationVendor = Vendor::where('code', $data['vendor_code'])->firstOrFail();
+            abort_unless($request->user()->vendor_id === $registrationVendor->id || $request->user()->isAdmin(), 403);
+            $registrationPricing = app(RegistrationPricingService::class)->quoteForVendor($registrationVendor, $data['promo_code'] ?? null);
+        }
+
         $payment = Payment::create([
             'reference' => $data['razorpay_payment_id'],
             'payable_type' => $data['purpose'],
@@ -139,6 +147,12 @@ class RazorpayController extends Controller
                 'razorpay_order_id' => $data['razorpay_order_id'],
                 'razorpay_signature' => $data['razorpay_signature'],
                 'purpose' => $data['purpose'],
+                ...($registrationPricing ? [
+                    'base_amount' => $registrationPricing['base_amount'],
+                    'discount_amount' => $registrationPricing['discount_amount'],
+                    'promo_code' => $registrationPricing['promo_code'],
+                    'promo_description' => $registrationPricing['promo_description'],
+                ] : []),
                 ...($data['purpose'] === 'registration' && filled($data['promo_code'] ?? null)
                     ? ['promo_code' => strtoupper(trim($data['promo_code']))]
                     : []),
@@ -148,8 +162,7 @@ class RazorpayController extends Controller
         $result = ['payment_id' => $payment->id, 'status' => 'success', 'amount_inr' => $amountInr];
 
         if ($data['purpose'] === 'registration') {
-            $vendor = Vendor::where('code', $data['vendor_code'])->firstOrFail();
-            abort_unless($request->user()->vendor_id === $vendor->id || $request->user()->isAdmin(), 403);
+            $vendor = $registrationVendor;
             $payment->update([
                 'payable_type' => Vendor::class,
                 'payable_id' => $vendor->id,
