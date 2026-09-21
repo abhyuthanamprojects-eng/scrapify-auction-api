@@ -148,6 +148,11 @@ jobs:
 
             # 8. Clear stale compiled state before booting the new release.
             echo "✓ Clearing Laravel caches..."
+            # Hostinger may retain bootstrap/cache files from an earlier
+            # development install. Those caches can reference dev-only
+            # providers such as Laravel Pail even though production uses
+            # composer install --no-dev.
+            find "$DEPLOY_PATH/bootstrap/cache" -maxdepth 1 -type f -name '*.php' -delete
             php artisan package:discover --ansi
             php artisan optimize:clear
             php artisan about >/dev/null
