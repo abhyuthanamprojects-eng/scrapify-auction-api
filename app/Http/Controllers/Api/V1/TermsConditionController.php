@@ -42,7 +42,7 @@ class TermsConditionController extends Controller
             'content' => 'required|string|max:5000',
             'category_id' => 'nullable|integer|exists:categories,id',
             'applicable_to' => 'in:all,buyer,seller',
-            'type' => 'in:general,payment,inspection,delivery,liability,dispute,compliance',
+            'type' => 'in:general,registration,payment,inspection,delivery,liability,dispute,compliance',
             'sort_order' => 'integer|min:0',
             'is_active' => 'boolean',
             'is_default' => 'boolean',
@@ -63,7 +63,7 @@ class TermsConditionController extends Controller
             'content' => 'string|max:5000',
             'category_id' => 'nullable|integer|exists:categories,id',
             'applicable_to' => 'in:all,buyer,seller',
-            'type' => 'in:general,payment,inspection,delivery,liability,dispute,compliance',
+            'type' => 'in:general,registration,payment,inspection,delivery,liability,dispute,compliance',
             'sort_order' => 'integer|min:0',
             'is_active' => 'boolean',
             'is_default' => 'boolean',
@@ -103,12 +103,17 @@ class TermsConditionController extends Controller
     {
         $role = $request->query('role', 'buyer');
 
-        $tncs = TermsCondition::active()
+        $query = TermsCondition::active()
             ->forRole($role)
             ->with('category:id,name')
             ->orderBy('sort_order')
-            ->orderBy('id')
-            ->get(['id', 'title', 'content', 'type', 'applicable_to', 'category_id', 'sort_order']);
+            ->orderBy('id');
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->string('type')->toString());
+        }
+
+        $tncs = $query->get(['id', 'title', 'content', 'type', 'applicable_to', 'category_id', 'sort_order']);
 
         return response()->json(['data' => $tncs]);
     }

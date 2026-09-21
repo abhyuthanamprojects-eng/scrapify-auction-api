@@ -9,6 +9,30 @@ class TermsConditionSeeder extends Seeder
 {
     public function run(): void
     {
+        $registration = [
+            [
+                'title' => 'Buyer Account Registration Terms',
+                'content' => "By registering as a buyer on Scrapify Auctions, you confirm that the information, GST/PAN details, contact details, bank information, and documents submitted by you are accurate, complete, and belong to the applicant or represented entity. You authorise Scrapify Auctions to verify these details through its verification providers and to contact you by email, SMS, or other registered channels about your account and auctions.\n\nBuyer registration is subject to document review and approval. You may browse the marketplace while your profile is under review, but bidding, EMD actions, and other restricted activities remain unavailable until approval. Registration fees, if enabled, are one-time non-refundable processing fees and are charged according to the amount and promotional code shown at checkout.\n\nYou agree to keep your login credentials secure, maintain valid licences and permissions required for the materials you purchase, follow auction, EMD, payment, lifting, environmental, tax, and applicable legal requirements, and provide updated information when requested. Scrapify Auctions may suspend, reject, or restrict an account where information cannot be verified, documents are incomplete, or applicable rules are breached.",
+                'type' => 'registration',
+                'applicable_to' => 'buyer',
+                'sort_order' => 1,
+            ],
+            [
+                'title' => 'Seller Account Registration Terms',
+                'content' => "By registering as a seller on Scrapify Auctions, you confirm that the information, GST/PAN details, contact details, bank information, business address, warehouse details, and documents submitted by you are accurate, complete, and belong to the applicant or represented entity. You authorise Scrapify Auctions to verify these details through its verification providers and to contact you by email, SMS, or other registered channels about your account, auctions, and compliance.\n\nSeller registration is subject to document review and approval. You may browse the marketplace while your profile is under review, but auction creation, publishing, bidding-related administration, and other restricted activities remain unavailable until approval. Registration fees, if enabled, are one-time non-refundable processing fees and are charged according to the amount and promotional code shown at checkout.\n\nYou agree to keep your login credentials secure, maintain lawful ownership or authority over every lot you publish, provide accurate descriptions, quantities, locations, pricing and auction terms, and comply with GST, environmental, tax, safety, storage, delivery, and other applicable requirements. Scrapify Auctions may suspend, reject, or restrict an account or remove listings where information cannot be verified, documents are incomplete, or applicable rules are breached.",
+                'type' => 'registration',
+                'applicable_to' => 'seller',
+                'sort_order' => 1,
+            ],
+        ];
+
+        foreach ($registration as $tnc) {
+            TermsCondition::updateOrCreate(
+                ['title' => $tnc['title'], 'category_id' => null],
+                array_merge($tnc, ['is_active' => true, 'is_default' => true]),
+            );
+        }
+
         $global = [
             [
                 'title' => 'Auction Participation Agreement',
