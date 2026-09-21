@@ -32,6 +32,7 @@ use App\Rules\IndianPincode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Response;
 use Illuminate\Validation\Rule;
 
@@ -196,13 +197,13 @@ class AuctionController extends Controller
         );
 
         abort_if(
-            $auction->schedule_start && now()->greaterThanOrEqualTo($auction->schedule_start->copy()->subHours(GeneralSettings::int('auction_edit_lock_hours', 3))),
+            ! $isStaff && $auction->schedule_start && now()->greaterThanOrEqualTo($auction->schedule_start->copy()->subHours(GeneralSettings::int('auction_edit_lock_hours', 3))),
             422,
             'Editing is locked because this auction starts within 3 hours.',
         );
 
         $data = $this->validated($request, partial: true);
-        if (array_key_exists('schedule_start', $data) && $auction->schedule_start && now()->greaterThanOrEqualTo($auction->schedule_start->copy()->subHours(GeneralSettings::int('auction_edit_lock_hours', 3)))) {
+        if (! $isStaff && array_key_exists('schedule_start', $data) && $auction->schedule_start && now()->greaterThanOrEqualTo($auction->schedule_start->copy()->subHours(GeneralSettings::int('auction_edit_lock_hours', 3)))) {
             abort(422, 'The auction start time cannot be changed after the edit lock begins.');
         }
         $attrs = $this->attributes($data, partial: true);
@@ -224,6 +225,39 @@ class AuctionController extends Controller
         }
 
         return new AuctionResource($auction->fresh(['category', 'lots', 'photos']));
+    }
+
+    /**
+     * Store auction images through the operations console only. Public users
+     * and sellers continue to use the existing URL/photo payload rules.
+     */
+    public function uploadAdminPhoto(Request $request, string $code): JsonResponse
+    {
+        $auction = Auction::where('code', $code)->firstOrFail();
+        abort_if(
+            in_array($auction->status, ['closed', 'cancelled'], true),
+            422,
+            'A closed or cancelled auction cannot be edited.',
+        );
+
+        $data = $request->validate([
+            'file' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
+        ]);
+
+        $file = $data['file'];
+        $path = $file->store("auction-photos/{$auction->code}", 'public');
+        $photo = $auction->photos()->create([
+            'path' => $path,
+            'url' => Storage::disk('public')->url($path),
+            'sort_order' => (int) ($auction->photos()->max('sort_order') ?? -1) + 1,
+        ]);
+
+        AuditLogger::write("Uploaded auction photo for {$auction->code}", 'Auction', $auction->code, [
+            'photo_id' => $photo->id,
+            'file_name' => $file->getClientOriginalName(),
+        ]);
+
+        return response()->json(['photo' => $photo], 201);
     }
 
     /**

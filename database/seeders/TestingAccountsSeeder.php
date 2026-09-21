@@ -11,6 +11,7 @@ use App\Models\Vendor;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Replaces the known demo accounts with two controlled QA accounts.
@@ -310,6 +311,24 @@ class TestingAccountsSeeder extends Seeder
                 ['code' => $code.'-L1'],
                 ['name' => $material, 'quantity' => $quantity, 'uom' => 'MT', 'reserve_price' => $price],
             );
+
+            $photoPath = $code === 'QA-AUC-SELLER-01'
+                ? 'auction-photos/qa/qa-hms-ferrous-scrap.png'
+                : 'auction-photos/qa/qa-copper-wire-scrap.png';
+            $sourcePath = resource_path('qa-auction-images/'.basename($photoPath));
+            if (is_file($sourcePath)) {
+                $contents = file_get_contents($sourcePath);
+                if ($contents !== false) {
+                    Storage::disk('public')->put($photoPath, $contents);
+                }
+            }
+
+            $auction->photos()->delete();
+            $auction->photos()->create([
+                'path' => $photoPath,
+                'url' => Storage::disk('public')->url($photoPath),
+                'sort_order' => 0,
+            ]);
         }
     }
 }

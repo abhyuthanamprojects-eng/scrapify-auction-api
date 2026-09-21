@@ -220,6 +220,8 @@ Route::prefix('v1')->group(function () {
             ->middleware(['permission:auctions.create', 'kyc.verified']);
         Route::patch('auctions/{code}', [AuctionController::class, 'update'])
             ->middleware('permission:auctions.update');
+        Route::post('admin/auctions/{code}/photos', [AuctionController::class, 'uploadAdminPhoto'])
+            ->middleware('permission:auctions.update');
         Route::delete('admin/auctions/{code}', [AuctionController::class, 'adminDestroy'])
             ->middleware(['token.context:admin', 'permission:auctions.delete']);
         Route::patch('auctions/{code}/configuration', [AuctionController::class, 'updateConfiguration'])
