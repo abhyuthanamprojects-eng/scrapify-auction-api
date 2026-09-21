@@ -49,4 +49,17 @@ class PincodeLookupTest extends TestCase
             ->assertJsonPath('error.code', 'PINCODE_PROVIDER_UNAVAILABLE')
             ->assertHeader('Retry-After', '30');
     }
+
+    public function test_pincode_provider_rate_limit_preserves_retry_after_contract(): void
+    {
+        Cache::forget('pincode:110022');
+        Http::fake([
+            'https://api.postalpincode.in/pincode/110022' => Http::response([], 429, ['Retry-After' => '12']),
+        ]);
+
+        $this->getJson('/api/v1/pincode/110022')
+            ->assertStatus(429)
+            ->assertJsonPath('error.code', 'PINCODE_PROVIDER_RATE_LIMITED')
+            ->assertHeader('Retry-After', '12');
+    }
 }

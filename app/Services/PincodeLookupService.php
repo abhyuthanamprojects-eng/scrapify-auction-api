@@ -30,8 +30,8 @@ class PincodeLookupService
                             ? 'PINCODE_PROVIDER_RATE_LIMITED'
                             : 'PINCODE_PROVIDER_UNAVAILABLE',
                         'The pincode service is temporarily unavailable.',
-                        503,
-                        60,
+                        $response->status() === 429 ? 429 : 503,
+                        max(1, (int) ($response->header('Retry-After') ?: 60)),
                     );
                 }
 

@@ -11,6 +11,7 @@ use App\Services\Verification\VerificationProviderResolver;
 use App\Contracts\IfscLookupProviderInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class BusinessVerificationController extends Controller
 {
@@ -52,7 +53,13 @@ class BusinessVerificationController extends Controller
         try {
             $provider = $resolver->for('BANK');
             abort_unless($provider instanceof IfscLookupProviderInterface, 422, 'The active bank provider does not support IFSC lookup.');
-            return response()->json(['success' => true, 'data' => $provider->lookupIfsc(strtoupper($ifsc))]);
+            $normalizedIfsc = strtoupper($ifsc);
+            $data = Cache::remember(
+                'ifsc:'.hash('sha256', $normalizedIfsc),
+                now()->addDays(30),
+                fn (): array => $provider->lookupIfsc($normalizedIfsc),
+            );
+            return response()->json(['success' => true, 'data' => $data]);
         } catch (VerificationProviderException $exception) {
             return $this->providerError($exception);
         }
