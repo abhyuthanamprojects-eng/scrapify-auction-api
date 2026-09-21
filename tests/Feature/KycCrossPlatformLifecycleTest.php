@@ -41,6 +41,13 @@ class KycCrossPlatformLifecycleTest extends TestCase
             ]], 200),
             '*test-api.sandbox.co.in/authenticate' => Http::response(['data' => ['access_token' => 'sandbox-token']], 200),
             '*test-api.sandbox.co.in/gst/compliance/public/gstin/verify' => Http::response(['data' => ['data' => ['gstin' => '27AAACB1234N1Z5', 'status' => 'Active', 'validGstin' => true, 'legalName' => 'Aditya Birla Metal Recycling Ltd']], 'status_cd' => '1'], 200),
+            '*test-api.sandbox.co.in/bank/HDFC0000060' => Http::response(['data' => [
+                'IFSC' => 'HDFC0000060',
+                'BANK' => 'HDFC Bank',
+                'BRANCH' => 'Worli',
+                'CITY' => 'Mumbai',
+                'STATE' => 'Maharashtra',
+            ]], 200),
             '*test-api.sandbox.co.in/bank/HDFC0000060/accounts/50200012345678/penniless-verify*' => Http::response(['code' => 200, 'transaction_id' => 'sandbox-bank-ref', 'data' => ['account_exists' => true, 'name_at_bank' => 'ADITYA BIRLA METAL RECYCLING LTD']], 200),
         ]);
     }
@@ -168,7 +175,9 @@ class KycCrossPlatformLifecycleTest extends TestCase
 
         // 10. Admin Approves KYC
         \Laravel\Sanctum\Sanctum::actingAs($admin);
-        $approveRes = $this->postJson("/api/v1/vendors/{$vendorCode}/approve");
+        $approveRes = $this->postJson("/api/v1/vendors/{$vendorCode}/approve", [
+            'documents_verified' => true,
+        ]);
         $approveRes->assertStatus(200)
             ->assertJson([
                 'data' => [

@@ -71,6 +71,7 @@ class VerificationProviderArchitectureTest extends TestCase
         Sanctum::actingAs($user);
         Http::fake([
             '*test-api.sandbox.co.in/authenticate' => Http::response(['data' => ['access_token' => 'sandbox-bank-token']]),
+            '*test-api.sandbox.co.in/bank/HDFC0000060' => Http::response(['data' => ['IFSC' => 'HDFC0000060', 'BANK' => 'HDFC Bank', 'BRANCH' => 'Sandbox Branch']]),
             '*test-api.sandbox.co.in/bank/HDFC0000060/accounts/123456789/penniless-verify*' => Http::response([
                 'code' => 200,
                 'transaction_id' => 'sandbox-bank-ref',
@@ -114,6 +115,9 @@ class VerificationProviderArchitectureTest extends TestCase
             if (str_contains($request->url(), '/authenticate')) {
                 $authenticationCalls++;
                 return Http::response(['data' => ['access_token' => 'fresh-token-'.$authenticationCalls]]);
+            }
+            if (str_contains($request->url(), '/bank/HDFC0000060') && ! str_contains($request->url(), '/penniless-verify')) {
+                return Http::response(['data' => ['IFSC' => 'HDFC0000060', 'BANK' => 'HDFC Bank', 'BRANCH' => 'Sandbox Branch']]);
             }
             if (str_contains($request->url(), '/penniless-verify')) {
                 $bankCalls++;

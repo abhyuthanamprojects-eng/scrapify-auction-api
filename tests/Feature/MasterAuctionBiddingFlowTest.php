@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Auction;
+use App\Models\AuctionTemplate;
+use App\Models\AuctionTemplateUpload;
 use App\Models\Category;
 use App\Models\EmdTransaction;
 use App\Models\Lot;
@@ -166,18 +168,57 @@ class MasterAuctionBiddingFlowTest extends TestCase
             'reserve_price' => 52000,
             'emd_amount' => 5000,
             'status' => 'draft',
+            'category_id' => $this->category->id,
             'schedule_start' => now()->subHour(),
             'schedule_end' => now()->addHours(2),
         ]);
         $createRes->assertStatus(201);
         $code = $createRes->json('data.code');
 
+        // The forward-auction contract requires a confirmed material list before submission.
+        // This test focuses on the bidding lifecycle, so provide the smallest valid confirmed
+        // upload fixture instead of bypassing the production validation.
+        $auction = Auction::where('code', $code)->firstOrFail();
+        $template = AuctionTemplate::create([
+            'code' => 'TPL-MASTER-FLOW',
+            'template_code' => 'MASTER_FLOW',
+            'name' => 'Master flow material list',
+            'category_id' => $this->category->id,
+            'direction' => 'forward',
+            'version' => '1.0',
+            'status' => 'active',
+            'schema_definition' => ['columns' => []],
+            'template_required' => true,
+            'allow_manual_items' => false,
+        ]);
+        AuctionTemplateUpload::create([
+            'auction_id' => $auction->id,
+            'template_id' => $template->id,
+            'template_version' => $template->version,
+            'original_filename' => 'master-flow-material-list.xlsx',
+            'stored_path' => 'auction-templates/master-flow-material-list.xlsx',
+            'disk' => 'local',
+            'mime_type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'file_size' => 1,
+            'file_hash' => hash('sha256', 'master-flow-material-list'),
+            'row_count' => 1,
+            'total_quantity' => 1,
+            'total_reference_value' => 50000,
+            'status' => 'parsed',
+            'parsed_summary' => ['rows' => 1, 'total_quantity' => 1, 'total_reference_value' => 50000],
+            'submission_version' => 1,
+            'uploaded_by' => $this->sellerUser->id,
+            'confirmed_at' => now(),
+        ]);
+
         // Submit for approval
         $this->postJson("/api/v1/auctions/{$code}/submit")->assertStatus(200);
 
         // Admin approves and publishes
         Sanctum::actingAs($this->adminUser);
-        $this->postJson("/api/v1/auctions/{$code}/approve")->assertStatus(200);
+        $this->postJson("/api/v1/auctions/{$code}/approve", [
+            'documents_verified' => true,
+        ])->assertStatus(200);
         $this->postJson("/api/v1/auctions/{$code}/publish")->assertStatus(200);
 
         // Make auction live
@@ -289,6 +330,7 @@ class MasterAuctionBiddingFlowTest extends TestCase
             'bid_increment' => 500, // decrement
             'reserve_price' => 40000, // floor price
             'emd_amount' => 3000,
+            'category_id' => $this->category->id,
             'status' => 'draft',
             'schedule_start' => now()->subHour(),
             'schedule_end' => now()->addHours(2),
@@ -299,7 +341,9 @@ class MasterAuctionBiddingFlowTest extends TestCase
         // Submit & Admin Approve
         $this->postJson("/api/v1/auctions/{$code}/submit")->assertStatus(200);
         Sanctum::actingAs($this->adminUser);
-        $this->postJson("/api/v1/auctions/{$code}/approve")->assertStatus(200);
+        $this->postJson("/api/v1/auctions/{$code}/approve", [
+            'documents_verified' => true,
+        ])->assertStatus(200);
         $this->postJson("/api/v1/auctions/{$code}/publish")->assertStatus(200);
 
         $auction = Auction::where('code', $code)->firstOrFail();

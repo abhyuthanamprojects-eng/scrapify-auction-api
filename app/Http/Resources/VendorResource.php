@@ -96,6 +96,15 @@ class VendorResource extends JsonResource
                 'offer_description' => $paymentMeta['promo_description'] ?? null,
                 'gateway' => $registrationPayment?->gateway,
                 'paid_at' => $registrationPayment?->paid_at?->toIso8601String(),
+                'proof_url' => $this->registration_payment_proof_path
+                    ? url("/api/v1/vendors/{$this->code}/registration-payment/proof")
+                    : null,
+                'transaction_id' => $this->registration_payment_transaction_id ?: ($paymentMeta['transaction_id'] ?? null),
+                'verification_reference' => $this->registration_payment_verification_ref,
+                'submitted_at' => $this->registration_payment_submitted_at?->toIso8601String(),
+                'verified_at' => $this->registration_payment_verified_at?->toIso8601String(),
+                'user_confirmed_at' => $this->registration_payment_user_confirmed_at?->toIso8601String(),
+                'rejection_reason' => $this->registration_payment_rejection_reason,
             ],
 
             // Documents

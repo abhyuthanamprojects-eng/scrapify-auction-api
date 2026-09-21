@@ -23,7 +23,5 @@ Route::get('/api/v1/openapi.yaml', function () {
         ->file(base_path('docs/openapi.yaml'), ['Content-Type' => 'application/yaml']);
 })->name('api.docs.spec');
 
-// --- TEMPORARY: Razorpay test checkout (remove after testing) ---
 if (app()->environment('local')) {
-    Route::get('/razorpay-test', fn () => view('razorpay-test'));
 }

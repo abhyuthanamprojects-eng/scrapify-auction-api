@@ -91,7 +91,7 @@ class VendorController extends Controller
     public function sendRegistrationPaymentEmail(Request $request, string $code): JsonResponse
     {
         $vendor = Vendor::where('code', $code)->with(['payments', 'user'])->firstOrFail();
-        abort_unless($vendor->registration_payment_status !== 'success', 422, 'Registration fee is already paid.');
+        abort_unless(! in_array($vendor->registration_payment_status, ['success', 'verified'], true), 422, 'Registration fee is already paid.');
 
         $payment = $vendor->payments
             ->filter(fn ($item) => in_array($item->meta['purpose'] ?? null, ['vendor_registration', 'registration'], true))
@@ -121,9 +121,14 @@ class VendorController extends Controller
             . "Amount payable: ₹".number_format((float) $amount, 2)."\n"
             . ($offer ? "Offer applied: {$offer}\n" : '')
             . ($discount ? 'Discount: ₹'.number_format($discount, 2)."\n" : '')
-            . "Payment method: Razorpay\n\n"
-            . "Open the secure payment page: {$paymentUrl}\n\n"
-            . "Sign in with your registered account. Razorpay checkout will open from your registration workspace.\n\n"
+            . "Payment method: Bank transfer\n"
+            . "Bank: ".GeneralSettings::string('registration_bank_name', 'State Bank of India')."\n"
+            . "Account name: ".GeneralSettings::string('registration_bank_account_name', 'ABHYUTHANAM INDUSTRIES PRIVATE LIMITED')."\n"
+            . "Account number: ".GeneralSettings::string('registration_bank_account_number', '45393705791')."\n"
+            . "IFSC: ".GeneralSettings::string('registration_bank_ifsc', 'SBIN0003599')."\n"
+            . "Branch: ".GeneralSettings::string('registration_bank_branch', '(63599) Jaitpur')."\n\n"
+            . "Open your registration workspace: {$paymentUrl}\n\n"
+            . "Upload a screenshot of the completed transfer. Transaction ID is optional. Our team will verify the payment and email a unique verification reference.\n\n"
             . "Regards,\n{$brandName}";
 
         try {
@@ -721,6 +726,131 @@ class VendorController extends Controller
         $this->authorizeVendorAccess($request, $vendor);
         $data = $request->validate(['promo_code' => ['sometimes', 'nullable', 'string', 'max:40']]);
         return response()->json(['pricing' => app(RegistrationPricingService::class)->quoteForVendor($vendor, $data['promo_code'] ?? null)]);
+    }
+
+    public function submitManualRegistrationPayment(Request $request, string $code): JsonResponse
+    {
+        $data = $request->validate([
+            'proof' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:10240'],
+            'transaction_id' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'promo_code' => ['sometimes', 'nullable', 'string', 'max:40'],
+        ]);
+
+        $vendor = Vendor::where('code', $code)->firstOrFail();
+        $this->authorizeVendorAccess($request, $vendor);
+        abort_if($vendor->registration_payment_status === 'success', 422, 'Registration payment is already confirmed.');
+
+        $pricing = app(RegistrationPricingService::class)->quoteForVendor($vendor, $data['promo_code'] ?? null);
+        $path = $request->file('proof')->store("registration-payments/{$vendor->code}", 'public');
+        $originalName = $request->file('proof')->getClientOriginalName();
+
+        $payment = DB::transaction(function () use ($vendor, $data, $pricing, $path, $originalName) {
+            $payment = $vendor->payments()
+                ->whereJsonContains('meta->purpose', 'vendor_registration')
+                ->whereIn('status', ['pending', 'failed'])
+                ->latest('id')->first();
+
+            $attributes = [
+                'amount' => $pricing['payable_amount'],
+                'method' => 'BANK_TRANSFER',
+                'status' => 'pending',
+                'gateway' => 'manual_bank_transfer',
+                'meta' => [
+                    'purpose' => 'vendor_registration',
+                    'base_amount' => $pricing['base_amount'],
+                    'discount_amount' => $pricing['discount_amount'],
+                    'promo_code' => $pricing['promo_code'],
+                    'promo_description' => $pricing['promo_description'],
+                    'transaction_id' => $data['transaction_id'] ?? null,
+                    'proof_path' => $path,
+                    'proof_name' => $originalName,
+                    'bank_name' => GeneralSettings::string('registration_bank_name', 'State Bank of India'),
+                    'submitted_at' => now()->toIso8601String(),
+                ],
+            ];
+            if ($payment) {
+                $payment->update($attributes);
+            } else {
+                $payment = $vendor->payments()->create(array_merge($attributes, [
+                    'reference' => 'BANK-'.strtoupper(Str::random(14)),
+                ]));
+            }
+
+            $vendor->update([
+                'registration_step' => 4,
+                'registration_payment_method' => 'BANK_TRANSFER',
+                'registration_payment_ref' => $payment->reference,
+                'registration_payment_status' => 'pending',
+                'registration_payment_proof_path' => $path,
+                'registration_payment_transaction_id' => $data['transaction_id'] ?? null,
+                'registration_payment_submitted_at' => now(),
+                'registration_payment_rejection_reason' => null,
+            ]);
+
+            return $payment;
+        });
+
+        return response()->json([
+            'message' => 'Payment proof submitted. Our team will verify it and email your verification reference.',
+            'payment' => $payment,
+            'vendor' => new VendorResource($vendor->fresh(['user', 'materials', 'documents', 'payments'])),
+        ], 201);
+    }
+
+    public function downloadRegistrationPaymentProof(Request $request, string $code): StreamedResponse|JsonResponse
+    {
+        $vendor = Vendor::where('code', $code)->firstOrFail();
+        $path = $vendor->registration_payment_proof_path;
+        if (! $path || ! Storage::disk('public')->exists($path)) {
+            return response()->json(['message' => 'Payment proof not found.'], 404);
+        }
+
+        return Storage::disk('public')->response($path, basename($path), ['Content-Disposition' => 'inline']);
+    }
+
+    public function verifyRegistrationPayment(Request $request, string $code): JsonResponse
+    {
+        $data = $request->validate(['status' => ['required', Rule::in(['verified', 'rejected'])], 'reason' => ['sometimes', 'nullable', 'string', 'max:1000']]);
+        $vendor = Vendor::where('code', $code)->with(['user', 'payments'])->firstOrFail();
+        $payment = $vendor->payments->filter(fn ($item) => ($item->meta['purpose'] ?? null) === 'vendor_registration')->sortByDesc('id')->first();
+        abort_unless($payment, 422, 'No registration payment proof has been submitted.');
+
+        if ($data['status'] === 'rejected') {
+            $payment->update(['status' => 'failed', 'meta' => array_merge($payment->meta ?? [], ['rejection_reason' => $data['reason'] ?? null])]);
+            $vendor->update(['registration_payment_status' => 'rejected', 'registration_payment_rejection_reason' => $data['reason'] ?? 'Payment proof was rejected.']);
+            return response()->json(['message' => 'Payment proof rejected.', 'vendor' => new VendorResource($vendor->fresh(['user', 'materials', 'documents', 'payments']))]);
+        }
+
+        $reference = 'SCRAPIFY-PAY-'.strtoupper(Str::random(10));
+        DB::transaction(function () use ($vendor, $payment, $reference): void {
+            $payment->update(['status' => 'success', 'gateway' => 'manual_bank_transfer', 'paid_at' => now(), 'meta' => array_merge($payment->meta ?? [], ['verification_reference' => $reference, 'verified_at' => now()->toIso8601String()])]);
+            $vendor->update(['registration_payment_status' => 'verified', 'registration_payment_ref' => $reference, 'registration_payment_verification_ref' => $reference, 'registration_payment_verified_at' => now(), 'registration_payment_rejection_reason' => null]);
+        });
+
+        $this->sendRegistrationPaymentVerifiedEmail($vendor->fresh(), $reference);
+        return response()->json(['message' => 'Payment verified and reference generated.', 'verification_reference' => $reference, 'vendor' => new VendorResource($vendor->fresh(['user', 'materials', 'documents', 'payments']))]);
+    }
+
+    public function verifyRegistrationPaymentReference(Request $request, string $code): JsonResponse
+    {
+        $data = $request->validate(['verification_reference' => ['required', 'string', 'max:80']]);
+        $vendor = Vendor::where('code', $code)->firstOrFail();
+        $this->authorizeVendorAccess($request, $vendor);
+        abort_unless($vendor->registration_payment_status === 'verified' && hash_equals((string) $vendor->registration_payment_verification_ref, trim($data['verification_reference'])), 422, 'The payment verification reference is invalid or not yet approved.');
+        $vendor->update(['registration_payment_status' => 'success', 'registration_payment_user_confirmed_at' => now()]);
+        return response()->json(['message' => 'Registration payment verified successfully.', 'vendor' => new VendorResource($vendor->fresh(['user', 'materials', 'documents', 'payments']))]);
+    }
+
+    private function sendRegistrationPaymentVerifiedEmail(Vendor $vendor, string $reference): void
+    {
+        if (! filter_var($vendor->email, FILTER_VALIDATE_EMAIL) || ! GeneralSettings::bool('email_enabled', true)) return;
+        $brand = trim(GeneralSettings::string('email_from_name', 'Scrapify Auctions')) ?: 'Scrapify Auctions';
+        $from = trim(GeneralSettings::string('email_from_address', (string) config('mail.from.address', '')));
+        config(['mail.from.address' => $from, 'mail.from.name' => $brand]);
+        Mail::raw("Hello {$vendor->contact_name},\n\nYour registration payment has been verified by Scrapify Auctions.\n\nVerification reference: {$reference}\n\nSign in to your Scrapify account and enter this reference when prompted to confirm your payment. Your profile will remain under KYC review for approximately 24–48 hours.\n\nRegards,\n{$brand}", function ($message) use ($vendor, $brand, $from): void {
+            $message->to($vendor->email)->subject($brand.' registration payment verified');
+            if (filter_var($from, FILTER_VALIDATE_EMAIL)) $message->from($from, $brand);
+        });
     }
 
     public function approve(Request $request, string $code): VendorResource

@@ -371,20 +371,18 @@ class AuctionTemplateTest extends TestCase
             $col++;
         }
 
-        $sampleData = [
-            ['Dell Latitude 5420', 'Dell', 'Latitude 5420', 'Used corporate laptop', '5', 'PCS', 'Used', '2022', 'Intel i5', '16 GB', '512 GB SSD', '14 inch', 'Working', 'Good', 'Charger', 'AST-001', 'Gurugram', '25000', ''],
-            ['HP EliteBook 840', 'HP', 'EliteBook 840', 'Refurbished', '10', 'PCS', 'Refurbished', '2021', 'Intel i7', '8 GB', '256 GB SSD', '14 inch', 'Working', 'Good', '', '', 'Mumbai', '22000', ''],
-            ['Lenovo ThinkPad T14', 'Lenovo', 'ThinkPad T14', 'Used', '5', 'PCS', 'Used', '2023', 'AMD Ryzen 5', '16 GB', '512 GB SSD', '14 inch', 'Working', 'Excellent', 'Charger, Bag', '', 'Delhi', '27000', ''],
+        $sampleRows = [
+            ['item_name' => 'Dell Latitude 5420', 'brand' => 'Dell', 'model' => 'Latitude 5420', 'description' => 'Used corporate laptop', 'manufacturing_year' => '2022', 'serial_identifier' => 'AST-001', 'quantity' => '5', 'unit' => 'PCS', 'condition' => 'Used', 'location' => 'Gurugram', 'reference_value' => '25000', 'remarks' => 'Charger'],
+            ['item_name' => 'HP EliteBook 840', 'brand' => 'HP', 'model' => 'EliteBook 840', 'description' => 'Refurbished laptop', 'manufacturing_year' => '2021', 'serial_identifier' => 'AST-002', 'quantity' => '10', 'unit' => 'PCS', 'condition' => 'Refurbished', 'location' => 'Mumbai', 'reference_value' => '22000', 'remarks' => ''],
+            ['item_name' => 'Lenovo ThinkPad T14', 'brand' => 'Lenovo', 'model' => 'ThinkPad T14', 'description' => 'Used laptop', 'manufacturing_year' => '2023', 'serial_identifier' => 'AST-003', 'quantity' => '5', 'unit' => 'PCS', 'condition' => 'Used', 'location' => 'Delhi', 'reference_value' => '27000', 'remarks' => 'Charger, Bag'],
         ];
 
-        foreach ($sampleData as $rowIdx => $rowData) {
+        foreach ($sampleRows as $rowIdx => $rowData) {
             $r = $rowIdx + 2;
             $sheet->setCellValue('A'.$r, $rowIdx + 1);
             $col = 'B';
-            foreach ($rowData as $i => $val) {
-                if ($i < count($columns)) {
-                    $sheet->setCellValue($col.$r, $val);
-                }
+            foreach ($columns as $colDef) {
+                $sheet->setCellValue($col.$r, $rowData[$colDef['key']] ?? $colDef['example'] ?? 'Sample');
                 $col++;
             }
         }

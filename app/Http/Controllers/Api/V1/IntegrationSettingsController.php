@@ -12,8 +12,6 @@ use Illuminate\Support\Facades\Crypt;
 class IntegrationSettingsController extends Controller
 {
     private const SECRET_KEYS = [
-        'razorpay_key_id',
-        'razorpay_key_secret',
         'sandbox_verification_api_key',
         'sandbox_verification_api_secret',
         'digilocker_client_id',
@@ -36,11 +34,6 @@ class IntegrationSettingsController extends Controller
             'firebase_messaging_sender_id' => GeneralSettings::string('firebase_messaging_sender_id', ''),
             'firebase_app_id' => GeneralSettings::string('firebase_app_id', ''),
             'google_client_id' => GeneralSettings::string('google_client_id', ''),
-            'razorpay_enabled' => GeneralSettings::bool('razorpay_enabled', false),
-            'razorpay_environment' => GeneralSettings::string('razorpay_environment', 'test'),
-            'razorpay_key_id' => $this->masked(GeneralSettings::secret('razorpay_key_id')),
-            'razorpay_key_secret' => $this->masked(GeneralSettings::secret('razorpay_key_secret')),
-            'razorpay_timeout' => GeneralSettings::int('razorpay_timeout', 30),
             'sandbox_verification_enabled' => GeneralSettings::bool('sandbox_verification_enabled', false),
             'sandbox_verification_environment' => GeneralSettings::string('sandbox_verification_environment', 'test'),
             'sandbox_verification_api_key' => $this->masked(GeneralSettings::secret('sandbox_verification_api_key')),
@@ -90,11 +83,6 @@ class IntegrationSettingsController extends Controller
             'firebase_messaging_sender_id' => ['sometimes', 'nullable', 'string', 'max:120'],
             'firebase_app_id' => ['sometimes', 'nullable', 'string', 'max:255'],
             'google_client_id' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'razorpay_enabled' => ['sometimes', 'boolean'],
-            'razorpay_environment' => ['sometimes', 'in:test,live'],
-            'razorpay_key_id' => ['sometimes', 'nullable', 'string', 'max:500'],
-            'razorpay_key_secret' => ['sometimes', 'nullable', 'string', 'max:500'],
-            'razorpay_timeout' => ['sometimes', 'integer', 'min:5', 'max:120'],
             'sandbox_verification_enabled' => ['sometimes', 'boolean'],
             'sandbox_verification_environment' => ['sometimes', 'in:test,live'],
             'sandbox_verification_api_key' => ['sometimes', 'nullable', 'string', 'max:500'],

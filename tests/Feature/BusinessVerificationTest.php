@@ -37,6 +37,7 @@ class BusinessVerificationTest extends TestCase
         Http::fake([
             '*test-api.sandbox.co.in/authenticate' => Http::response(['data' => ['access_token' => 'sandbox-token']]),
             '*test-api.sandbox.co.in/gst/compliance/public/gstin/verify' => Http::response(['transaction_id' => 'sandbox-gst-ref', 'data' => ['data' => ['gstin' => '29AAICP2912R1ZR', 'legalName' => 'ACME TECHNOLOGIES PRIVATE LIMITED', 'status' => 'Active', 'validGstin' => true], 'status_cd' => '1']]),
+            '*test-api.sandbox.co.in/bank/YESB0000001' => Http::response(['data' => ['IFSC' => 'YESB0000001', 'BANK' => 'Yes Bank', 'BRANCH' => 'Sandbox Branch', 'CITY' => 'Bengaluru', 'STATE' => 'Karnataka']]),
             '*test-api.sandbox.co.in/bank/*/accounts/*/penniless-verify*' => Http::response(['code' => 200, 'transaction_id' => 'sandbox-bank-ref', 'data' => ['account_exists' => true, 'name_at_bank' => 'ACME TECHNOLOGIES PVT LTD']]),
         ]);
         $user = $this->user();
@@ -56,14 +57,16 @@ class BusinessVerificationTest extends TestCase
         Http::fake([
             '*test-api.sandbox.co.in/authenticate' => Http::response(['data' => ['access_token' => 'sandbox-token']]),
             '*test-api.sandbox.co.in/gst/compliance/public/gstin/verify' => Http::response(['transaction_id' => 'sandbox-gst-ref', 'data' => ['data' => ['gstin' => '29AAICP2912R1ZR', 'status' => 'Active', 'validGstin' => true], 'status_cd' => '1']]),
+            '*test-api.sandbox.co.in/bank/YESB0000001' => Http::response(['data' => ['IFSC' => 'YESB0000001', 'BANK' => 'Yes Bank', 'BRANCH' => 'Sandbox Branch', 'CITY' => 'Bengaluru', 'STATE' => 'Karnataka']]),
             '*test-api.sandbox.co.in/bank/*/accounts/*/penniless-verify*' => Http::response(['code' => 200, 'transaction_id' => 'sandbox-bank-ref', 'data' => ['account_exists' => true, 'name_at_bank' => 'DIFFERENT NAME']]),
         ]);
         $user = $this->user(); Sanctum::actingAs($user);
         $this->postJson('/api/v1/kyb/gstin/verify', ['gstin' => '29AAICP2912R1ZR'])->assertOk();
         $this->postJson('/api/v1/kyb/bank/verify', ['bank_account' => '26291800001191', 'bank_account_confirmation' => '26291800001191', 'ifsc' => 'YESB0000001'])->assertOk()->assertJsonPath('data.overall_kyb_status', 'REVIEW_REQUIRED');
 
-        Http::fake(['*test-api.sandbox.co.in/authenticate' => Http::response([], 503)]);
-        $this->postJson('/api/v1/kyb/bank/verify', ['bank_account' => '26291800001192', 'bank_account_confirmation' => '26291800001192', 'ifsc' => 'YESB0000001'])->assertStatus(503)->assertJsonPath('error.code', 'PROVIDER_UNAVAILABLE');
+        Http::fake(fn () => Http::response([], 503));
+        $outageRes = $this->postJson('/api/v1/kyb/bank/verify', ['bank_account' => '26291800001192', 'bank_account_confirmation' => '26291800001192', 'ifsc' => 'YESB0000002']);
+        $outageRes->assertStatus(503)->assertJsonPath('error.code', 'PROVIDER_UNAVAILABLE');
         $this->assertSame('BANK_PENDING', BusinessVerification::where('user_id', $user->id)->value('overall_kyb_status'));
     }
 

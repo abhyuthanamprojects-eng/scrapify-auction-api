@@ -31,11 +31,11 @@ use App\Http\Controllers\Api\V1\TokenController;
 use App\Http\Controllers\Api\V1\VendorController;
 use App\Http\Controllers\Api\V1\RegistrationPromotionController;
 use App\Http\Controllers\Api\V1\WalletController;
+use App\Http\Controllers\Api\V1\ManualPaymentController;
 use App\Http\Controllers\Api\V1\WatchlistController;
 use App\Http\Controllers\Api\V1\AuctionTemplateController;
 use App\Http\Controllers\Api\V1\BusinessVerificationController;
 use App\Http\Controllers\Api\V1\IdentityVerificationController;
-use App\Http\Controllers\Api\V1\RazorpayController;
 use App\Http\Controllers\Api\V1\AuctionDocumentController;
 use App\Http\Controllers\Api\V1\TermsConditionController;
 use Illuminate\Support\Facades\Route;
@@ -60,51 +60,6 @@ Route::prefix('v1')->group(function () {
     Route::post('auth/resend-otp', [AuthController::class, 'resendOtp']);
     Route::post('auth/google', [AuthController::class, 'googleSignIn']);
     Route::post('auth/verify-otp', [AuthController::class, 'verifyOtp']);
-
-    // --- TEMPORARY: Razorpay test endpoints (remove after testing) ---
-    if (app()->environment('local')) {
-        Route::post('test/razorpay/create-order', function (\Illuminate\Http\Request $request) {
-            $data = $request->validate([
-                'amount' => ['required', 'numeric', 'min:1'],
-                'purpose' => ['required', \Illuminate\Validation\Rule::in(['wallet_topup', 'registration'])],
-            ]);
-
-            $service = app(\App\Services\RazorpayPaymentService::class);
-            $amountPaise = (int) round((float) $data['amount'] * 100);
-            $receipt = 'test_' . now()->format('YmdHis');
-
-            $result = $service->createOrder($amountPaise, 'INR', $receipt, ['purpose' => $data['purpose'], 'test' => true]);
-
-            return response()->json(['data' => array_merge($result, ['prefill' => ['name' => 'Test User', 'email' => 'test@scrapify.in']])]);
-        });
-
-        Route::post('test/razorpay/verify', function (\Illuminate\Http\Request $request) {
-            $data = $request->validate([
-                'razorpay_order_id' => ['required', 'string'],
-                'razorpay_payment_id' => ['required', 'string'],
-                'razorpay_signature' => ['required', 'string'],
-                'purpose' => ['required', 'string'],
-            ]);
-
-            $service = app(\App\Services\RazorpayPaymentService::class);
-
-            if (! $service->verifySignature($data['razorpay_order_id'], $data['razorpay_payment_id'], $data['razorpay_signature'])) {
-                return response()->json(['error' => ['code' => 'SIGNATURE_MISMATCH', 'message' => 'Payment verification failed.']], 400);
-            }
-
-            $payment = [];
-            try { $payment = $service->fetchPayment($data['razorpay_payment_id']); } catch (\Throwable $e) {}
-
-            return response()->json(['data' => [
-                'status' => 'success',
-                'verified' => true,
-                'payment_id' => $data['razorpay_payment_id'],
-                'order_id' => $data['razorpay_order_id'],
-                'amount_inr' => isset($payment['amount']) ? (float) $payment['amount'] / 100 : null,
-                'method' => $payment['method'] ?? 'unknown',
-            ]]);
-        });
-    }
 
     /* -------------------------------------------------------------- public */
     // Reachable without a token: the public listing, the token-access page and
@@ -228,6 +183,8 @@ Route::prefix('v1')->group(function () {
             Route::post('vendors/{code}/resubmit-kyc', [VendorController::class, 'resubmitKyc']);
             Route::get('vendors/{code}/kyc-status', [VendorController::class, 'kycStatus']);
             Route::post('vendors/{code}/registration-payment/quote', [VendorController::class, 'quoteRegistrationPayment']);
+            Route::post('vendors/{code}/registration-payment/manual', [VendorController::class, 'submitManualRegistrationPayment']);
+            Route::post('vendors/{code}/registration-payment/verify-reference', [VendorController::class, 'verifyRegistrationPaymentReference']);
         });
         // Document access supports both a vendor's public workspace and
         // authorized admin review. The controller still enforces ownership or
@@ -243,6 +200,10 @@ Route::prefix('v1')->group(function () {
             ->middleware('permission:vendors.view');
         Route::post('vendors/{code}/registration-payment/email', [VendorController::class, 'sendRegistrationPaymentEmail'])
             ->middleware('permission:vendors.update');
+        Route::get('vendors/{code}/registration-payment/proof', [VendorController::class, 'downloadRegistrationPaymentProof'])
+            ->middleware('permission:vendors.view');
+        Route::post('vendors/{code}/registration-payment/verify', [VendorController::class, 'verifyRegistrationPayment'])
+            ->middleware('permission:vendors.approve');
         Route::patch('vendors/{code}', [VendorController::class, 'update'])
             ->middleware('permission:vendors.update');
         Route::post('vendors/{code}/approve', [VendorController::class, 'approve'])
@@ -385,15 +346,13 @@ Route::prefix('v1')->group(function () {
         Route::delete('watchlist/{code}', [WatchlistController::class, 'destroy'])
             ->middleware(['token.context:public', 'permission:watchlist.manage']);
 
-        /* Razorpay payments */
-        Route::post('payments/razorpay/create-order', [RazorpayController::class, 'createOrder']);
-        Route::post('payments/razorpay/verify', [RazorpayController::class, 'verifyPayment']);
-
         /* wallet and EMD */
+        Route::post('payments/manual', [ManualPaymentController::class, 'submit'])->middleware(['token.context:public', 'permission:wallet.topup']);
+        Route::post('payments/manual/{id}/confirm', [ManualPaymentController::class, 'confirm'])->middleware('token.context:public');
+        Route::get('admin/payments/manual', [ManualPaymentController::class, 'index'])->middleware('permission:wallet.view_any');
+        Route::post('admin/payments/manual/{id}/verify', [ManualPaymentController::class, 'verify'])->middleware('permission:wallet.view_any');
         Route::get('wallet', [WalletController::class, 'balance'])->middleware('token.context:public');
         Route::get('wallet/transactions', [WalletController::class, 'transactions'])->middleware('token.context:public');
-        Route::post('wallet/top-up', [WalletController::class, 'topUp'])
-            ->middleware(['token.context:public', 'permission:wallet.topup']);
         Route::get('emd', [WalletController::class, 'emdList'])->middleware('token.context:public');
         Route::post('emd/lock', [WalletController::class, 'lockEmd'])
             ->middleware(['token.context:public', 'permission:emd.lock,emd.manage', 'kyc.verified']);

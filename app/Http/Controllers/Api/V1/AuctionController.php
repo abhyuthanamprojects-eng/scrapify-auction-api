@@ -1122,9 +1122,11 @@ class AuctionController extends Controller
             'bid_increment' => ['sometimes', 'numeric', 'min:0'],
             'emd_amount' => ['sometimes', 'numeric', 'min:0'],
             'status' => ['sometimes', Rule::in(['draft', 'pending_approval'])],
-            // `after:now` only on create — an update may legitimately touch an
-            // auction whose start has already passed.
-            'schedule_start' => array_filter(['sometimes', 'nullable', 'date', $partial ? null : 'after:now']),
+            // Drafts may be staged with an already-open start time (useful for
+            // immediate/test auctions). Once an auction is being edited after
+            // creation, the existing schedule is also allowed to remain in the
+            // past; the publish/review workflow controls when it becomes live.
+            'schedule_start' => array_filter(['sometimes', 'nullable', 'date', $partial || $request->input('status') === 'draft' ? null : 'after:now']),
             'registration_end' => ['sometimes', 'nullable', 'date', 'before_or_equal:schedule_start'],
             'schedule_end' => ['sometimes', 'nullable', 'date', 'after:schedule_start'],
             'inspection' => ['sometimes', 'nullable', 'string'],

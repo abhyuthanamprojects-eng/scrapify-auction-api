@@ -11,7 +11,6 @@ use App\Services\WalletService;
 use App\Services\AuctionEligibilityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 class WalletController extends Controller
 {
@@ -56,31 +55,6 @@ class WalletController extends Controller
             ]),
             'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'total' => $page->total()],
         ]);
-    }
-
-    /**
-     * Add money. No gateway is wired in this pass — the caller supplies the
-     * method and reference, and the ledger records it as a successful credit.
-     */
-    public function topUp(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            'amount' => ['required', 'numeric', 'min:1'],
-            'method' => ['required', Rule::in(['UPI', 'Card', 'Net Banking', 'Bank Transfer'])],
-            'note' => ['sometimes', 'nullable', 'string', 'max:180'],
-        ]);
-
-        $wallet = $this->wallets->forUser($request->user());
-
-        $txn = $this->wallets->credit($wallet, 'add_money', (float) $data['amount'], [
-            'method' => $data['method'],
-            'note' => $data['note'] ?? $data['method'],
-        ]);
-
-        return response()->json([
-            'transaction' => $txn,
-            'balance_inr' => (float) $wallet->fresh()->balance,
-        ], 201);
     }
 
     public function lockEmd(Request $request): JsonResponse
