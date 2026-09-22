@@ -102,7 +102,8 @@ class VendorController extends Controller
         $brandName = trim(GeneralSettings::string('email_from_name', 'Scrapify Auctions')) ?: 'Scrapify Auctions';
         $fromAddress = trim(GeneralSettings::string('email_from_address', (string) config('mail.from.address', '')));
 
-        if (! filter_var($vendor->email, FILTER_VALIDATE_EMAIL)) {
+        $recipient = $this->registrationEmail($vendor);
+        if (! $recipient) {
             return response()->json(['error' => ['code' => 'VENDOR_EMAIL_INVALID', 'message' => 'This vendor does not have a valid email address.']], 422);
         }
         if (! GeneralSettings::bool('email_enabled', true)) {
@@ -142,8 +143,8 @@ class VendorController extends Controller
                 'mail.from.address' => $fromAddress,
                 'mail.from.name' => $brandName,
             ]);
-            Mail::raw($body, function ($message) use ($vendor, $brandName, $fromAddress): void {
-                $message->to($vendor->email)->subject($brandName.' registration fee payment');
+            Mail::raw($body, function ($message) use ($recipient, $brandName, $fromAddress): void {
+                $message->to($recipient)->subject($brandName.' registration fee payment');
                 if (filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
                     $message->from($fromAddress, $brandName);
                 }
@@ -153,7 +154,7 @@ class VendorController extends Controller
             return response()->json(['error' => ['code' => 'PAYMENT_EMAIL_FAILED', 'message' => 'Payment email could not be sent. Check the configured email provider.']], 502);
         }
 
-        return response()->json(['data' => ['sent' => true, 'email' => $vendor->email, 'payment_url' => $paymentUrl]]);
+        return response()->json(['data' => ['sent' => true, 'email' => $recipient, 'payment_url' => $paymentUrl]]);
     }
 
     /**
@@ -843,14 +844,25 @@ class VendorController extends Controller
 
     private function sendRegistrationPaymentVerifiedEmail(Vendor $vendor, string $reference): void
     {
-        if (! filter_var($vendor->email, FILTER_VALIDATE_EMAIL) || ! GeneralSettings::bool('email_enabled', true)) return;
+        $recipient = $this->registrationEmail($vendor);
+        if (! $recipient || ! GeneralSettings::bool('email_enabled', true)) return;
         $brand = trim(GeneralSettings::string('email_from_name', 'Scrapify Auctions')) ?: 'Scrapify Auctions';
         $from = trim(GeneralSettings::string('email_from_address', (string) config('mail.from.address', '')));
         config(['mail.from.address' => $from, 'mail.from.name' => $brand]);
-        Mail::raw("Hello {$vendor->contact_name},\n\nYour registration payment has been verified by Scrapify Auctions.\n\nVerification reference: {$reference}\n\nSign in to your Scrapify account and enter this reference when prompted to confirm your payment. Your profile will remain under KYC review for approximately 24–48 hours.\n\nRegards,\n{$brand}", function ($message) use ($vendor, $brand, $from): void {
-            $message->to($vendor->email)->subject($brand.' registration payment verified');
+        Mail::raw("Hello {$vendor->contact_name},\n\nYour registration payment has been verified by Scrapify Auctions.\n\nVerification reference: {$reference}\n\nSign in to your Scrapify account and enter this reference when prompted to confirm your payment. Your profile will remain under KYC review for approximately 24–48 hours.\n\nRegards,\n{$brand}", function ($message) use ($recipient, $brand, $from): void {
+            $message->to($recipient)->subject($brand.' registration payment verified');
             if (filter_var($from, FILTER_VALIDATE_EMAIL)) $message->from($from, $brand);
         });
+    }
+
+    private function registrationEmail(Vendor $vendor): ?string
+    {
+        $accountEmail = $vendor->user?->email;
+        if (filter_var($accountEmail, FILTER_VALIDATE_EMAIL)) {
+            return $accountEmail;
+        }
+
+        return filter_var($vendor->email, FILTER_VALIDATE_EMAIL) ? $vendor->email : null;
     }
 
     public function approve(Request $request, string $code): VendorResource

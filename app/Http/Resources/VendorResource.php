@@ -37,6 +37,11 @@ class VendorResource extends JsonResource
             // Contact & Addresses
             'contact_name' => $this->contact_name,
             'email' => $this->email,
+            // The original account email is an admin-only operational field;
+            // do not expose it in vendor/mobile payloads.
+            'registered_email' => $request->user()?->isAdmin()
+                ? ($this->user?->email ?: $this->email)
+                : null,
             'phone' => $this->phone,
             'location' => $this->location,
             'address' => $this->address,
