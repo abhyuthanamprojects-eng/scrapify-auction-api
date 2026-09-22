@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 use App\Models\TermsCondition;
 use App\Services\GeneralSettings;
 use App\Services\AuctionEligibilityService;
@@ -107,7 +108,20 @@ class AuctionResource extends JsonResource
                 'phone' => $this->contact_phone,
                 'email' => $this->contact_email,
             ],
-            'photos' => $this->whenLoaded('photos', fn () => $this->photos->pluck('url')),
+            // Rebuild local asset URLs from their path. Older seeded records
+            // may contain a localhost APP_URL and would otherwise be broken
+            // for production web, admin, and mobile clients.
+            'photos' => $this->whenLoaded('photos', fn () => $this->photos
+                ->map(function ($photo) {
+                    $url = (string) ($photo->url ?? '');
+                    $path = (string) ($photo->path ?? '');
+                    if ($path !== '' && ($url === '' || preg_match('/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i', $url))) {
+                        return Storage::disk('public')->url($path);
+                    }
+                    return $url;
+                })
+                ->filter()
+                ->values()),
             'sub_lots' => LotResource::collection($this->whenLoaded('lots')),
             'bids' => BidResource::collection($this->whenLoaded('bids')),
             'extensions' => $this->whenLoaded('extensions', fn () => $this->extensions->map(fn ($e) => [
