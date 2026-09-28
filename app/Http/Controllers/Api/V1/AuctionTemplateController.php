@@ -48,7 +48,7 @@ class AuctionTemplateController extends Controller
         $data = $request->validate([
             'template_code' => ['required', 'string', 'max:60'],
             'name' => ['required', 'string', 'max:180'],
-            'category_id' => ['required', 'exists:categories,id'],
+            'category_id' => ['nullable', 'exists:categories,id'],
             'subcategory_id' => ['nullable', 'exists:categories,id'],
             'direction' => ['sometimes', Rule::in(['forward', 'reverse', 'both'])],
             'version' => ['sometimes', 'string', 'max:20'],
@@ -223,7 +223,7 @@ class AuctionTemplateController extends Controller
         $template = AuctionTemplate::findOrFail($request->input('template_id'));
         abort_unless($template->isActive(), 422, 'This template version is not active.');
 
-        if ($auction->category_id && $template->category_id !== $auction->category_id) {
+        if ($auction->category_id && $template->category_id && $template->category_id !== $auction->category_id) {
             abort(422, 'Template category does not match auction category.');
         }
 

@@ -373,11 +373,12 @@ class AuctionController extends Controller
         abort_unless($auction->status === 'pending_approval', 422, 'This auction is not awaiting approval.');
 
         $currentVersion = max($auction->submission_version, 1);
+        $docVersion = $auction->documents()->max('submission_version') ?: $currentVersion;
 
-        if ($auction->documents()->where('submission_version', $currentVersion)->exists()) {
+        {
             $requiredDocs = \App\Models\AuctionDocument::requiredDocsForDirection($auction->direction);
             $uploaded = $auction->documents()
-                ->where('submission_version', $currentVersion)
+                ->where('submission_version', $docVersion)
                 ->get()
                 ->keyBy('doc_type');
 
@@ -1187,7 +1188,7 @@ class AuctionController extends Controller
 
     private function attributes(array $data, bool $partial = false): array
     {
-        $attrs = collect($data)->except(['sub_lots', 'photos', 'category', 'organization_code', 'status', 'subcategory_id', 'category_id'])->all();
+        $attrs = collect($data)->except(['sub_lots', 'photos', 'category', 'organization_code', 'status', 'subcategory_id', 'category_id', 'client_code'])->all();
 
         if (array_key_exists('subcategory_id', $data) && $data['subcategory_id']) {
             $attrs['subcategory_id'] = $data['subcategory_id'];
