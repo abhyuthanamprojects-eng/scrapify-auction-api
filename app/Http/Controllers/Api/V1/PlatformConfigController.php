@@ -49,6 +49,12 @@ class PlatformConfigController extends Controller
             'mobile_force_update' => GeneralSettings::bool('mobile_force_update', false),
             'mobile_update_url' => GeneralSettings::string('mobile_update_url', ''),
             'mobile_update_notes' => GeneralSettings::string('mobile_update_notes', ''),
+            'ios_min_version' => GeneralSettings::string('ios_min_version', '1.0.0'),
+            'ios_latest_version' => GeneralSettings::string('ios_latest_version', '1.0.0'),
+            'ios_force_update' => GeneralSettings::bool('ios_force_update', false),
+            'android_min_version' => GeneralSettings::string('android_min_version', '1.0.0'),
+            'android_latest_version' => GeneralSettings::string('android_latest_version', '1.0.0'),
+            'android_force_update' => GeneralSettings::bool('android_force_update', false),
             'business_bank_name_match_required' => GeneralSettings::bool('business_bank_name_match_required', true),
             'kyb_gst_validity_days' => GeneralSettings::int('kyb_gst_validity_days', 180),
             'kyb_bank_validity_days' => GeneralSettings::int('kyb_bank_validity_days', 365),
@@ -86,7 +92,7 @@ class PlatformConfigController extends Controller
             'registration_bank_ifsc' => ['sometimes', 'string', 'max:20'],
             'registration_bank_branch' => ['sometimes', 'string', 'max:160'],
             'registration_bank_address' => ['sometimes', 'string', 'max:500'],
-            'auction_edit_lock_hours' => ['required', 'integer', 'min:0', 'max:168'],
+            'auction_edit_lock_hours' => ['sometimes', 'integer', 'min:0', 'max:168'],
             'emd_percentage' => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'minimum_participants' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'initial_slot_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
@@ -110,18 +116,24 @@ class PlatformConfigController extends Controller
             'kyb_auto_approve_match_score' => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'kyb_review_match_score' => ['sometimes', 'numeric', 'min:0', 'max:100'],
             'kyb_allow_admin_override' => ['sometimes', 'boolean'],
-            'mobile_min_version' => ['sometimes', 'regex:/^\d+\.\d+\.\d+$/'],
-            'mobile_latest_version' => ['sometimes', 'regex:/^\d+\.\d+\.\d+$/'],
+            'mobile_min_version' => ['sometimes', 'nullable', 'regex:/^\d+\.\d+\.\d+$/'],
+            'mobile_latest_version' => ['sometimes', 'nullable', 'regex:/^\d+\.\d+\.\d+$/'],
             'mobile_force_update' => ['sometimes', 'boolean'],
-            'mobile_update_url' => ['sometimes', 'url', 'max:500'],
+            'mobile_update_url' => ['sometimes', 'nullable', 'url', 'max:500'],
             'mobile_update_notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'ios_min_version' => ['sometimes', 'nullable', 'regex:/^\d+\.\d+\.\d+$/'],
+            'ios_latest_version' => ['sometimes', 'nullable', 'regex:/^\d+\.\d+\.\d+$/'],
+            'ios_force_update' => ['sometimes', 'boolean'],
+            'android_min_version' => ['sometimes', 'nullable', 'regex:/^\d+\.\d+\.\d+$/'],
+            'android_latest_version' => ['sometimes', 'nullable', 'regex:/^\d+\.\d+\.\d+$/'],
+            'android_force_update' => ['sometimes', 'boolean'],
             'app_store_url' => ['sometimes', 'nullable', 'url', 'max:500'],
             'play_store_url' => ['sometimes', 'nullable', 'url', 'max:500'],
             'app_tagline' => ['sometimes', 'nullable', 'string', 'max:200'],
             'app_description' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
         foreach ($data as $key => $value) {
-            GeneralSetting::updateOrCreate(['key' => $key], ['value' => (string) $value]);
+            GeneralSetting::updateOrCreate(['key' => $key], ['value' => (string) ($value ?? '')]);
         }
         return $this->show();
     }
