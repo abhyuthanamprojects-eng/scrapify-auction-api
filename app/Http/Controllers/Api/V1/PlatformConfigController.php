@@ -65,6 +65,12 @@ class PlatformConfigController extends Controller
                 'messagingSenderId' => GeneralSettings::string('firebase_messaging_sender_id', ''),
                 'appId' => GeneralSettings::string('firebase_app_id', ''),
             ],
+            'mobile_app' => [
+                'app_store_url' => GeneralSettings::string('app_store_url', ''),
+                'play_store_url' => GeneralSettings::string('play_store_url', ''),
+                'app_tagline' => GeneralSettings::string('app_tagline', 'Bid on the go — anytime, anywhere'),
+                'app_description' => GeneralSettings::string('app_description', 'Browse live auctions, place bids in real-time, track orders, and manage your auction portfolio — all from your mobile device.'),
+            ],
         ]);
     }
 
@@ -109,6 +115,10 @@ class PlatformConfigController extends Controller
             'mobile_force_update' => ['sometimes', 'boolean'],
             'mobile_update_url' => ['sometimes', 'url', 'max:500'],
             'mobile_update_notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'app_store_url' => ['sometimes', 'nullable', 'url', 'max:500'],
+            'play_store_url' => ['sometimes', 'nullable', 'url', 'max:500'],
+            'app_tagline' => ['sometimes', 'nullable', 'string', 'max:200'],
+            'app_description' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
         foreach ($data as $key => $value) {
             GeneralSetting::updateOrCreate(['key' => $key], ['value' => (string) $value]);
