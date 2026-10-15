@@ -15,6 +15,10 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Scan tracked files for injected payloads
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
         run: bash scripts/security-scan.sh
