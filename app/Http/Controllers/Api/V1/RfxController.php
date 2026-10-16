@@ -108,6 +108,20 @@ class RfxController extends Controller
             return response()->json(['success' => false, 'message' => 'User does not belong to a vendor profile.'], 403);
         }
 
+        abort_unless($package->status === 'open', 422, 'This RFx package is not open for submissions.');
+        abort_if(
+            $package->submission_deadline && now()->greaterThan($package->submission_deadline),
+            422,
+            'The RFx submission deadline has passed.',
+        );
+
+        $hasParticipation = $auction->bids()->where('vendor_id', $vendor->id)->exists()
+            || $auction->emdTransactions()->where('vendor_id', $vendor->id)->exists()
+            || RfxResponse::where('vendor_id', $vendor->id)
+                ->whereHas('package', fn ($query) => $query->where('auction_id', $auction->id))
+                ->exists();
+        abort_unless($hasParticipation, 403, 'You did not participate in this auction.');
+
         $validated = $request->validate([
             'answers' => 'required|array',
         ]);
