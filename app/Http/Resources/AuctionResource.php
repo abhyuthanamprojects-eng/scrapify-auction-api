@@ -140,6 +140,9 @@ class AuctionResource extends JsonResource
                 ? ($this->review_comment !== 'Reserve price not met' && ($this->winner_vendor_id !== null || $this->reserve_na || $this->reserve_price === null))
                 : null,
             'interested_count' => $this->whenCounted('interestedBidders'),
+            'is_interested' => $user
+                ? $this->interestedBidders()->where('user_id', $user->id)->exists()
+                : false,
             'allowed_actions' => [
                 'can_edit' => $private && in_array($this->status, ['draft', 'sent_back'], true)
                     && (! $this->schedule_start || now()->lt($this->schedule_start->copy()->subHours(GeneralSettings::int('auction_edit_lock_hours', 3)))),
