@@ -215,6 +215,7 @@ class MasterAuctionBiddingFlowTest extends TestCase
         $this->postJson("/api/v1/auctions/{$code}/submit")->assertStatus(200);
 
         // Admin approves and publishes
+        $this->prepareAuctionForApproval(Auction::where('code', $code)->firstOrFail(), $this->adminUser);
         Sanctum::actingAs($this->adminUser);
         $this->postJson("/api/v1/auctions/{$code}/approve", [
             'documents_verified' => true,

@@ -180,6 +180,7 @@ class FullPlatformEndToEndFlowTest extends TestCase
             ->assertJsonPath('data.status', 'pending_approval');
 
         // Admin Approves Forward Auction
+        $this->prepareAuctionForApproval(Auction::where('code', $fwdCode)->firstOrFail(), $adminUser);
         $fwdApprove = $this->postJson("/api/v1/auctions/{$fwdCode}/approve", [
             'documents_verified' => true,
         ]);
@@ -211,6 +212,7 @@ class FullPlatformEndToEndFlowTest extends TestCase
 
         // Submit & Approve Reverse Auction
         $this->postJson("/api/v1/auctions/{$revCode}/submit")->assertStatus(200);
+        $this->prepareAuctionForApproval(Auction::where('code', $revCode)->firstOrFail(), $adminUser);
         $this->postJson("/api/v1/auctions/{$revCode}/approve", ['documents_verified' => true])->assertStatus(200);
         $this->postJson("/api/v1/auctions/{$revCode}/publish")->assertStatus(200)
             ->assertJsonPath('data.status', 'published');

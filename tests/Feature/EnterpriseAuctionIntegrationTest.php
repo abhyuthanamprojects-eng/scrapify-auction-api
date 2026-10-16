@@ -171,6 +171,7 @@ class EnterpriseAuctionIntegrationTest extends TestCase
         $submitResponse->assertStatus(200);
 
         // 3. Admin Verification & Approval
+        $this->prepareAuctionForApproval(Auction::where('code', $code)->firstOrFail(), $adminUser);
         $approveResponse = $this->postJson("/api/v1/auctions/{$code}/approve", [
             'documents_verified' => true,
         ]);
