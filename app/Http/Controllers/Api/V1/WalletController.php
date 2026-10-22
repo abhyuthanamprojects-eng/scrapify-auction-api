@@ -70,10 +70,18 @@ class WalletController extends Controller
         abort_unless($vendor, 422, 'This account has no vendor profile.');
         abort_unless($this->eligibility->registrationOpen($auction), 422, 'Auction registration has closed. You may only view this auction.');
 
+        $lotId = isset($data['lot']) && $data['lot']
+            ? Lot::where('auction_id', $auction->id)->where('code', $data['lot'])->value('id')
+            : null;
+
+        if (isset($data['lot']) && $data['lot'] && ! $lotId) {
+            abort(422, 'The selected lot does not belong to this auction.');
+        }
+
         $emd = $this->emd->ensureLocked(
             $auction,
             $vendor,
-            isset($data['lot']) ? Lot::where('code', $data['lot'])->value('id') : null,
+            $lotId,
         );
 
         return response()->json([

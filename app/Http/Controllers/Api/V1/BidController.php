@@ -44,9 +44,7 @@ class BidController extends Controller
 
         abort_unless($vendor, 422, 'This account has no vendor profile, so it cannot bid.');
 
-        $lotId = isset($data['lot']) && $data['lot']
-            ? Lot::where('code', $data['lot'])->where('auction_id', $auction->id)->value('id')
-            : null;
+        $lotId = $this->lotIdForAuction($data['lot'] ?? null, $auction);
 
         $bid = $this->bidding->place(
             auction: $auction,
@@ -86,7 +84,7 @@ class BidController extends Controller
             $user->vendor,
             $user,
             (float) $data['max_amount'],
-            isset($data['lot']) ? Lot::where('code', $data['lot'])->value('id') : null,
+            $this->lotIdForAuction($data['lot'] ?? null, $auction),
         );
 
         return response()->json(['proxy_bid' => $proxy], 201);
@@ -99,7 +97,7 @@ class BidController extends Controller
         $this->bidding->cancelProxy(
             $auction,
             $request->user()->vendor,
-            $request->query('lot') ? Lot::where('code', $request->query('lot'))->value('id') : null,
+            $this->lotIdForAuction($request->query('lot'), $auction),
         );
 
         return response()->json(['message' => 'Auto-bid cancelled.']);
@@ -142,5 +140,16 @@ class BidController extends Controller
             'won' => $rows->where('result', 'Won')->values(),
             'lost' => $rows->where('result', 'Lost')->values(),
         ]);
+    }
+
+    private function lotIdForAuction(?string $code, Auction $auction): ?int
+    {
+        if (! $code) {
+            return null;
+        }
+
+        return Lot::where('auction_id', $auction->id)
+            ->where('code', $code)
+            ->value('id');
     }
 }

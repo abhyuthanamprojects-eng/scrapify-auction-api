@@ -37,6 +37,19 @@ class EmdService
             ]);
         }
 
+        // Published auctions bind participants to the exact terms version
+        // frozen at publish time. Enforce this in the shared EMD service so
+        // wallet locks, manual-payment confirmation, proxy setup, and the
+        // first bid cannot use different gates.
+        if ($auction->current_terms_version_id && ! $auction->termsAcceptances()
+            ->where('user_id', $user->id)
+            ->where('terms_version_id', $auction->current_terms_version_id)
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'terms' => 'Accept the current auction terms before locking EMD.',
+            ]);
+        }
+
         $wallet = $this->wallets->forUser($user);
         $config = $auction->configSnapshot?->config ?? [];
         if (array_key_exists('emd_required', $config) && ! $config['emd_required']) $amount = 0.0;

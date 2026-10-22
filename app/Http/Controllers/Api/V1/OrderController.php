@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Auction;
 use App\Models\EmdTransaction;
+use App\Models\Lot;
 use App\Models\Order;
 use App\Models\OrderPickup;
 use App\Models\Payment;
+use App\Models\Vendor;
 use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -72,11 +74,20 @@ class OrderController extends Controller
             ->firstOrFail();
 
         abort_unless($auction->status === 'closed', 422, 'Orders are only raised for closed auctions.');
-        abort_unless($auction->winner_vendor_id, 422, 'This auction has no winning bidder.');
+        $lot = null;
+        if (isset($data['lot']) && $data['lot'] !== null && $data['lot'] !== '') {
+            $lot = Lot::where('auction_id', $auction->id)
+                ->where(fn ($q) => $q->where('code', $data['lot'])->orWhere('id', $data['lot']))
+                ->firstOrFail();
+        }
 
-        $winning = (float) $auction->final_price;
+        $winnerVendorId = $lot?->winner_vendor_id ?? $auction->winner_vendor_id;
+        $winning = (float) ($lot?->final_price ?? $auction->final_price);
+        abort_unless($winnerVendorId && $winning > 0, 422, 'This auction or lot has no winning bidder.');
+
         $emd = (float) EmdTransaction::where('auction_id', $auction->id)
-            ->where('vendor_id', $auction->winner_vendor_id)
+            ->where('lot_id', $lot?->id)
+            ->where('vendor_id', $winnerVendorId)
             ->value('amount');
 
         $gst = $winning * config('scrapify.gst_pct') / 100;
@@ -84,10 +95,10 @@ class OrderController extends Controller
         $total = $winning + $gst + $tcs;
 
         $order = Order::firstOrCreate(
-            ['auction_id' => $auction->id, 'lot_id' => null],
+            ['auction_id' => $auction->id, 'lot_id' => $lot?->id],
             [
-                'vendor_id' => $auction->winner_vendor_id,
-                'user_id' => $auction->winnerVendorUserId(),
+                'vendor_id' => $winnerVendorId,
+                'user_id' => Vendor::find($winnerVendorId)?->user_id,
                 'winning_amount' => $winning,
                 'emd_applied' => $emd,
                 'gst_pct' => config('scrapify.gst_pct'),

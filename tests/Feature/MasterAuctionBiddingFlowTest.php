@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Auction;
 use App\Models\AuctionTemplate;
 use App\Models\AuctionTemplateUpload;
+use App\Models\AuctionTermsAcceptance;
 use App\Models\Category;
 use App\Models\EmdTransaction;
 use App\Models\Lot;
@@ -222,6 +223,22 @@ class MasterAuctionBiddingFlowTest extends TestCase
         ])->assertStatus(200);
         $this->postJson("/api/v1/auctions/{$code}/publish")->assertStatus(200);
 
+        // Bidding requires acceptance of the exact terms version frozen at
+        // publish time, just as the production buyer flow does.
+        $publishedAuction = Auction::where('code', $code)->firstOrFail();
+        AuctionTermsAcceptance::create([
+            'auction_id' => $publishedAuction->id,
+            'user_id' => $this->buyerUser1->id,
+            'terms_version_id' => $publishedAuction->current_terms_version_id,
+            'accepted_at' => now(),
+        ]);
+        AuctionTermsAcceptance::create([
+            'auction_id' => $publishedAuction->id,
+            'user_id' => $this->buyerUser2->id,
+            'terms_version_id' => $publishedAuction->current_terms_version_id,
+            'accepted_at' => now(),
+        ]);
+
         // Make auction live
         $auction = Auction::where('code', $code)->firstOrFail();
         $auction->update(['status' => 'live']);
@@ -347,6 +364,14 @@ class MasterAuctionBiddingFlowTest extends TestCase
         ])->assertStatus(200);
         $this->postJson("/api/v1/auctions/{$code}/publish")->assertStatus(200);
 
+        $publishedAuction = Auction::where('code', $code)->firstOrFail();
+        AuctionTermsAcceptance::create([
+            'auction_id' => $publishedAuction->id,
+            'user_id' => $this->buyerUser1->id,
+            'terms_version_id' => $publishedAuction->current_terms_version_id,
+            'accepted_at' => now(),
+        ]);
+
         $auction = Auction::where('code', $code)->firstOrFail();
         $auction->update(['status' => 'live']);
 
@@ -438,6 +463,16 @@ class MasterAuctionBiddingFlowTest extends TestCase
 
         $this->assertEquals($this->buyerVendor2->id, $lot2->winner_vendor_id);
         $this->assertEquals(30000, (float) $lot2->final_price);
+
+        // Each lot winner must receive a lot-scoped fulfilment order rather
+        // than being collapsed into the auction-level order.
+        Sanctum::actingAs($this->adminUser);
+        $order1 = $this->postJson('/api/v1/orders', ['auction_id' => $code, 'lot' => $lot1->code])->assertStatus(201);
+        $order2 = $this->postJson('/api/v1/orders', ['auction_id' => $code, 'lot' => $lot2->code])->assertStatus(201);
+        $this->assertSame($lot1->code, $order1->json('order.lot_id'));
+        $this->assertSame($lot2->code, $order2->json('order.lot_id'));
+        $this->assertSame(20000.0, (float) $order1->json('order.winning_amount_inr'));
+        $this->assertSame(30000.0, (float) $order2->json('order.winning_amount_inr'));
     }
 
     public function test_late_bid_does_not_extend_the_current_slot(): void

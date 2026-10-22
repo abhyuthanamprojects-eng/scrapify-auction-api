@@ -20,7 +20,11 @@ final class AuctionEligibilityService
     public function isParticipant(Auction $auction, Vendor $vendor): bool
     {
         return $auction->emdTransactions()->where('vendor_id', $vendor->id)->exists()
-            || $auction->termsAcceptances()->where('user_id', $vendor->user_id)->exists();
+            || ($auction->current_terms_version_id
+                && $auction->termsAcceptances()
+                    ->where('user_id', $vendor->user_id)
+                    ->where('terms_version_id', $auction->current_terms_version_id)
+                    ->exists());
     }
 
     public function participationState(Auction $auction, ?Vendor $vendor): array
@@ -55,5 +59,19 @@ final class AuctionEligibilityService
         return ['eligible'=>empty($reasons),'reasons'=>$reasons,'vendor_id'=>$vendor->id,'emd_status'=>$emd?->status];
     }
     public function eligible(Auction $auction, Vendor $vendor): bool { return $this->evaluate($auction,$vendor)['eligible']; }
-    public function count(Auction $auction): int { return (int) EmdTransaction::where('auction_id',$auction->id)->where('status','locked')->distinct('vendor_id')->count('vendor_id'); }
+    public function count(Auction $auction): int
+    {
+        $config = $auction->configSnapshot?->config ?? [];
+        if (($config['emd_required'] ?? true) === false) {
+            return (int) $auction->termsAcceptances()
+                ->where('terms_version_id', $auction->current_terms_version_id)
+                ->distinct('user_id')
+                ->count('user_id');
+        }
+
+        return (int) EmdTransaction::where('auction_id', $auction->id)
+            ->where('status', 'locked')
+            ->distinct('vendor_id')
+            ->count('vendor_id');
+    }
 }

@@ -33,6 +33,14 @@ class AuctionResource extends JsonResource
                 ->get(['id', 'title', 'content', 'type', 'applicable_to', 'category_id', 'sort_order'])
                 ->toArray();
         }
+        $termsAccepted = (bool) ($user && $this->current_terms_version_id
+            && $this->termsAcceptances()
+                ->where('user_id', $user->id)
+                ->where('terms_version_id', $this->current_terms_version_id)
+                ->exists());
+        $emdStatus = $vendor
+            ? $this->emdTransactions()->where('vendor_id', $vendor->id)->latest('id')->value('status')
+            : null;
 
         return [
             'id' => $this->code,
@@ -74,6 +82,8 @@ class AuctionResource extends JsonResource
             'registration_status' => $participation['registration_status'],
             'is_registered' => $participation['is_registered'],
             'registration_open' => $participation['registration_open'],
+            'terms_accepted' => $termsAccepted,
+            'emd_status' => $emdStatus,
             'schedule_end' => $this->schedule_end?->toIso8601String(),
             'actual_started_at' => $this->actual_started_at?->toIso8601String(),
             'hard_end_at' => $this->schedule_end?->toIso8601String(),

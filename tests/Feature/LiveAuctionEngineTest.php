@@ -103,6 +103,22 @@ class LiveAuctionEngineTest extends TestCase
         $this->assertTrue($slot->fresh()->ends_at->equalTo($originalEnd));
     }
 
+    public function test_proxy_configuration_locks_emd_before_it_can_place_a_bid(): void
+    {
+        [$auction, , $user, $vendor] = $this->liveAuction();
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/v1/auctions/{$auction->code}/proxy-bid", [
+            'max_amount' => 54000,
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('emd_transactions', [
+            'auction_id' => $auction->id,
+            'vendor_id' => $vendor->id,
+            'status' => 'locked',
+        ]);
+    }
+
     public function test_equal_amounts_use_earlier_server_bid_as_deterministic_leader(): void
     {
         [$auction, $slot, $firstUser] = $this->liveAuction('forward', 0);

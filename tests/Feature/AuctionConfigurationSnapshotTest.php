@@ -61,6 +61,35 @@ class AuctionConfigurationSnapshotTest extends TestCase
             ->assertOk()->assertJsonPath('data.ready', false)->assertJsonPath('data.eligible_participants', 0);
     }
 
+    public function test_no_emd_readiness_counts_terms_participants(): void
+    {
+        $admin = User::factory()->create(['role' => 'operations', 'status' => 'active']);
+        $buyers = User::factory()->count(2)->create(['role' => 'buyer', 'status' => 'active']);
+        $auction = Auction::create([
+            'title' => 'No EMD auction', 'company' => 'Scrapify', 'status' => 'published',
+            'direction' => 'forward', 'schedule_start' => now()->addHour(),
+        ]);
+        $snapshot = AuctionConfigSnapshot::create([
+            'auction_id' => $auction->id, 'version' => 1, 'frozen_by' => $admin->id,
+            'frozen_at' => now(), 'config' => ['emd_required' => false, 'minimum_participants' => 2],
+        ]);
+        $version = AuctionTermsVersion::create([
+            'auction_id' => $auction->id, 'version' => 1, 'published_by' => $admin->id,
+            'terms_text' => 'Terms', 'rules' => ['config_snapshot_id' => $snapshot->id], 'published_at' => now(),
+        ]);
+        $auction->update(['config_snapshot_id' => $snapshot->id, 'current_terms_version_id' => $version->id]);
+        foreach ($buyers as $buyer) {
+            $auction->termsAcceptances()->create([
+                'user_id' => $buyer->id, 'terms_version_id' => $version->id, 'accepted_at' => now(),
+            ]);
+        }
+
+        $this->getJson("/api/v1/auctions/{$auction->code}/readiness")
+            ->assertOk()
+            ->assertJsonPath('data.eligible_participants', 2)
+            ->assertJsonPath('data.checks.minimum_participants', true);
+    }
+
     public function test_eligibility_returns_actionable_reason_codes(): void
     {
         $user = User::factory()->create(['role'=>'buyer','status'=>'active']);

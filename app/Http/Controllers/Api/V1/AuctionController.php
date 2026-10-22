@@ -164,8 +164,15 @@ class AuctionController extends Controller
             $attrs['company'] = $owner->vendor->company_name;
         }
 
+        // Sellers must pass through the explicit submit endpoint so category,
+        // material-list and other readiness gates cannot be bypassed by
+        // posting a pending status during the initial create request.
+        $initialStatus = $isStaff && ($data['status'] ?? 'draft') === 'pending_approval'
+            ? 'pending_approval'
+            : 'draft';
+
         $auction = Auction::create(array_merge($attrs, [
-            'status' => $data['status'] ?? 'draft',
+            'status' => $initialStatus,
             'submitted_by' => $owner->id,
             'submitted_by_name' => $owner->name,
         ]));
@@ -879,6 +886,7 @@ class AuctionController extends Controller
         $auction = Auction::where('code', $code)->firstOrFail();
         $user = $request->user();
         abort_unless(app(\App\Services\AuctionEligibilityService::class)->registrationOpen($auction), 422, 'Auction registration has closed. You may only view this auction.');
+        abort_unless($auction->current_terms_version_id, 422, 'This auction does not have a published terms version.');
 
         AuctionTermsAcceptance::updateOrCreate(
             ['auction_id' => $auction->id, 'user_id' => $user->id, 'terms_version_id' => $auction->current_terms_version_id],

@@ -166,6 +166,11 @@ class BiddingService
     {
         $this->assertBiddable($auction, $vendor, $user);
 
+        // A proxy is an instruction that can place a bid immediately after a
+        // competing bid arrives. Hold EMD at configuration time so a proxy
+        // cannot appear active while its first server-generated bid would fail.
+        $this->emd->ensureLocked($auction, $vendor, $lotId);
+
         return ProxyBid::updateOrCreate(
             ['auction_id' => $auction->id, 'lot_id' => $lotId, 'vendor_id' => $vendor->id],
             ['user_id' => $user?->id, 'max_amount' => $max, 'is_active' => true],
