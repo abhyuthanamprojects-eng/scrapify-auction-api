@@ -53,6 +53,7 @@ jobs:
           command_timeout: 10m
           script: |
             set -Eeuo pipefail
+            trap 'status=$?; echo "ERROR: deployment failed at line $LINENO: $BASH_COMMAND (exit $status)"; exit $status' ERR
 
             echo "=============================="
             echo "Deploying Laravel API"
@@ -124,6 +125,12 @@ jobs:
               cp "$DEPLOY_PATH/repo/.env.example" "$DEPLOY_PATH/.env"
             fi
             cd $DEPLOY_PATH
+            # Laravel 12 reads CACHE_STORE. Keep existing installations on a
+            # file cache unless they explicitly opt into another store; this
+            # avoids optimize:clear touching a database before migrations run.
+            if ! grep -q '^CACHE_STORE=' .env; then
+              printf '\nCACHE_STORE=file\n' >> .env
+            fi
             sed -i "s|^APP_URL=.*|APP_URL=${{ secrets.APP_URL }}|" .env
             sed -i "s|^DB_HOST=.*|DB_HOST=localhost|" .env
             sed -i "s|^DB_PORT=.*|DB_PORT=${{ secrets.DB_PORT }}|" .env
@@ -147,22 +154,19 @@ jobs:
             fi
 
             # 8. Clear stale compiled state before booting the new release.
-            echo "✓ Clearing Laravel caches..."
             # Hostinger may retain bootstrap/cache files from an earlier
             # development install. Those caches can reference dev-only
             # providers such as Laravel Pail even though production uses
             # composer install --no-dev.
             find "$DEPLOY_PATH/bootstrap/cache" -maxdepth 1 -type f -name '*.php' -delete
+            echo "✓ Running pending database migrations..."
+            php artisan migrate --force
+            echo "✓ Clearing Laravel caches..."
             php artisan package:discover --ansi
             php artisan optimize:clear
             php artisan about >/dev/null
 
-            # 10. Run only migrations not recorded in the production database.
-            # Never replace this with migrate:fresh/refresh/reset/db:wipe.
-            echo "✓ Running pending database migrations..."
-            php artisan migrate --force
-
-            # 11. Rebuild the supported optimized cache set.
+            # 10. Rebuild the supported optimized cache set.
             echo "✓ Rebuilding Laravel optimized caches..."
             php artisan optimize
 
