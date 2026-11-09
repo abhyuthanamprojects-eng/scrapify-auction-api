@@ -1,9 +1,5 @@
 # Environment
-.env
 .env.backup
-.env.production
-.env.local
-.env.staging
 
 # Dependencies
 /node_modules
@@ -25,7 +21,6 @@
 /.fleet
 /.idea
 /.nova
-/.vscode
 /.zed
 
 # Testing
@@ -60,3 +55,4 @@ branch_structure.json
 .tinker-pw.php
 playwright-report/
 test-results/
+config.bat
