@@ -7,7 +7,19 @@ patterns=(
   "while[[:space:]]*\\([[:space:]]*!*!+[[:space:]]*\\[\\]"
   "temp_(auto|interactive)_push\\.bat"
   "node[[:space:]]+api\\.js[[:space:]]*&&"
+  "runOn[[:space:]]*['\"]?[:=][^\n]*(folderOpen|workspaceFolder)"
+  "(node|bun|deno)[[:space:]]+[^\n]*(^|[/\\\\])(api\\.js|init|\\.vscode[/\\\\]ini)"
 )
+
+# These names were used by the injected loader incident. A legitimate
+# dependency may contain api.js, so only reject tracked copies at the project
+# root or inside editor configuration directories.
+for file in api.js init .vscode/ini .vscode/tasks.json; do
+  if git ls-files --error-unmatch -- "$file" >/dev/null 2>&1; then
+    echo "Security scan found a prohibited loader/editor hook: $file" >&2
+    exit 1
+  fi
+done
 
 failed=0
 for pattern in "${patterns[@]}"; do
