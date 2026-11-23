@@ -153,36 +153,41 @@ jobs:
             sed -i "s|^DB_USERNAME=.*|DB_USERNAME=${{ secrets.DB_USERNAME }}|" .env
             sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD="${{ secrets.DB_PASSWORD }}"|' .env
 
-            # Pick a PHP 8.3 CLI with every extension Laravel needs. Hostinger
-            # ships Sodium outside the default CLI scan path, so try the
-            # provider's standard extension directory too.
+            # Pick a PHP 8.3 CLI with every extension Laravel needs. Use the
+            # host's default CLI configuration and load only the individual
+            # extensions it lacks. Never scan the whole php.d.std directory:
+            # it enables New Relic, whose Guzzle instrumentation uses eval()
+            # and is killed by Hostinger's DISEVAL hardening (exit 255).
             PHP_BIN=php
             if [ -x /opt/alt/php83/usr/bin/php ]; then PHP_BIN=/opt/alt/php83/usr/bin/php; fi
-            REQUIRED_EXT="ctype curl fileinfo json mbstring openssl pdo pdo_mysql sodium tokenizer xml"
+            unset PHP_INI_SCAN_DIR
+            EXT_DIR="$("$PHP_BIN" -n -d display_errors=0 -i 2>/dev/null | sed -n 's/^extension_dir => \([^ ]*\).*/\1/p' | head -n 1 || true)"
+            [ -n "$EXT_DIR" ] || EXT_DIR=/opt/alt/php83/usr/lib64/php/modules
+            REQUIRED_EXT="ctype curl fileinfo json mbstring openssl pdo mysqlnd pdo_mysql sodium tokenizer xml"
+            PHP_ARGS=(-d newrelic.enabled=0)
             missing_ext() {
-              mods="$("$PHP_BIN" -m 2>/dev/null | tr 'A-Z' 'a-z')"
+              mods="$("$PHP_BIN" "${PHP_ARGS[@]}" -m 2>/dev/null | tr 'A-Z' 'a-z')"
               for ext in $REQUIRED_EXT; do
                 printf '%s\n' "$mods" | grep -qx "$ext" || printf '%s ' "$ext"
               done
             }
-            PHP_OK=""
-            for scan in "/opt/alt/php83/etc/php.d.std" ":/opt/alt/php83/etc/php.d.std" "__default__"; do
-              if [ "$scan" = "__default__" ]; then unset PHP_INI_SCAN_DIR; else export PHP_INI_SCAN_DIR="$scan"; fi
-              miss="$(missing_ext)"
-              echo "  PHP_INI_SCAN_DIR=${PHP_INI_SCAN_DIR:-<default>} missing: ${miss:-none}"
-              if [ -z "$miss" ]; then PHP_OK=1; break; fi
+            miss="$(missing_ext)"
+            echo "  Default PHP configuration missing: ${miss:-none}"
+            for ext in $miss; do
+              if [ -f "$EXT_DIR/$ext.so" ]; then PHP_ARGS+=(-d "extension=$ext.so"); fi
             done
-            "$PHP_BIN" -v
-            "$PHP_BIN" --ini || true
-            if [ -z "$PHP_OK" ]; then
-              echo "ERROR: no PHP configuration provides all required extensions; refusing deployment."
+            miss="$(missing_ext)"
+            echo "  PHP arguments: ${PHP_ARGS[*]}"
+            "$PHP_BIN" "${PHP_ARGS[@]}" -v
+            if [ -n "$miss" ]; then
+              echo "ERROR: PHP is missing required extensions: $miss; refusing deployment."
               exit 1
             fi
 
             # Always show PHP errors in this log: Hostinger's CLI hides them,
             # which turns any fatal error into a silent "exit 255".
             artisan() {
-              "$PHP_BIN" -d display_errors=stderr -d display_startup_errors=1 \
+              "$PHP_BIN" "${PHP_ARGS[@]}" -d display_errors=stderr -d display_startup_errors=1 \
                 -d error_reporting=-1 -d log_errors=0 -d memory_limit=512M \
                 "$DEPLOY_PATH/artisan" "$@"
             }
