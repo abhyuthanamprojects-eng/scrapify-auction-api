@@ -8,6 +8,7 @@ use App\Models\Organization;
 use App\Models\Vendor;
 use App\Services\GeneralSettings;
 use App\Observers\AuditableObserver;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 
@@ -25,7 +26,7 @@ class AppServiceProvider extends ServiceProvider
     {
         // Provider settings saved in the admin panel override environment
         // fallbacks for long-running Laravel workers and broadcaster clients.
-        if (Schema::hasTable('general_settings')) {
+        if ($this->generalSettingsAvailable()) {
             config([
                 'broadcasting.connections.pusher.app_id' => GeneralSettings::string('pusher_app_id', (string) config('broadcasting.connections.pusher.app_id', '')),
                 'broadcasting.connections.pusher.key' => GeneralSettings::secret('pusher_app_key', config('broadcasting.connections.pusher.key')),
@@ -53,5 +54,24 @@ class AppServiceProvider extends ServiceProvider
 
         // SQLite foreign keys are enabled by config/database.php
         // ('foreign_key_constraints' => true), so no PRAGMA is needed here.
+    }
+
+    /**
+     * Admin-panel settings are optional overrides. If the database is not
+     * reachable while the app boots (deploys, cache commands, a DB outage),
+     * keep the .env configuration instead of making every request and every
+     * artisan command fail with a fatal error.
+     */
+    private function generalSettingsAvailable(): bool
+    {
+        try {
+            return Schema::hasTable('general_settings');
+        } catch (\Throwable $e) {
+            Log::warning('General settings skipped during boot: database unavailable.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
     }
 }

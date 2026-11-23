@@ -53,13 +53,22 @@ jobs:
           command_timeout: 10m
           script: |
             set -Eeuo pipefail
-            trap 'status=$?; echo "ERROR: deployment failed at line $LINENO: $BASH_COMMAND (exit $status)"; exit $status' ERR
+            DEPLOY_PATH="/home/u551475123/domains/api.scrapifyauctions.com"
+            on_error() {
+              status=$?
+              echo "ERROR: deployment failed at line $1: $2 (exit $status)"
+              if [ -f "$DEPLOY_PATH/storage/logs/laravel.log" ]; then
+                echo "----- last 60 lines of storage/logs/laravel.log -----"
+                tail -n 60 "$DEPLOY_PATH/storage/logs/laravel.log" || true
+              fi
+              exit $status
+            }
+            trap 'on_error $LINENO "$BASH_COMMAND"' ERR
 
             echo "=============================="
             echo "Deploying Laravel API"
             echo "=============================="
 
-            DEPLOY_PATH="/home/u551475123/domains/api.scrapifyauctions.com"
             REPO_URL="https://github.com/abhyuthanamprojects-eng/scrapify-auction-api.git"
 
             mkdir -p "$DEPLOY_PATH"
@@ -77,10 +86,16 @@ jobs:
 
             # 2. Copy Laravel app files to parent directory (NOT public_html)
             echo "✓ Syncing Laravel app files..."
-            for dir in app bootstrap config database resources routes storage vendor; do
+            for dir in app bootstrap config database resources routes; do
               rm -rf "$DEPLOY_PATH/$dir"
               cp -r "$DEPLOY_PATH/repo/$dir" "$DEPLOY_PATH/$dir"
             done
+            # storage/ holds uploaded files and logs: never delete it, only
+            # make sure the directories Laravel needs exist.
+            mkdir -p "$DEPLOY_PATH/storage/app/public" "$DEPLOY_PATH/storage/app/private" \
+              "$DEPLOY_PATH/storage/framework/cache/data" "$DEPLOY_PATH/storage/framework/sessions" \
+              "$DEPLOY_PATH/storage/framework/views" "$DEPLOY_PATH/storage/logs" \
+              "$DEPLOY_PATH/bootstrap/cache"
 
             # Composer is blocked by Hostinger's DISEVAL hardening. Dependencies
             # are resolved on the GitHub runner and uploaded as an artifact.
@@ -138,19 +153,52 @@ jobs:
             sed -i "s|^DB_USERNAME=.*|DB_USERNAME=${{ secrets.DB_USERNAME }}|" .env
             sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD="${{ secrets.DB_PASSWORD }}"|' .env
 
-            # Hostinger ships Sodium but excludes it from the default CLI
-            # scan path. Enable the provider-managed standard extensions for
-            # every Composer and Artisan command in this deployment.
-            export PHP_INI_SCAN_DIR="/opt/alt/php83/etc/php.d.std"
-            if ! php -m | grep -qi '^sodium$'; then
-              echo "ERROR: PHP Sodium extension is unavailable; refusing deployment."
+            # Pick a PHP 8.3 CLI with every extension Laravel needs. Hostinger
+            # ships Sodium outside the default CLI scan path, so try the
+            # provider's standard extension directory too.
+            PHP_BIN=php
+            if [ -x /opt/alt/php83/usr/bin/php ]; then PHP_BIN=/opt/alt/php83/usr/bin/php; fi
+            REQUIRED_EXT="ctype curl fileinfo json mbstring openssl pdo pdo_mysql sodium tokenizer xml"
+            missing_ext() {
+              mods="$("$PHP_BIN" -m 2>/dev/null | tr 'A-Z' 'a-z')"
+              for ext in $REQUIRED_EXT; do
+                printf '%s\n' "$mods" | grep -qx "$ext" || printf '%s ' "$ext"
+              done
+            }
+            PHP_OK=""
+            for scan in "/opt/alt/php83/etc/php.d.std" ":/opt/alt/php83/etc/php.d.std" "__default__"; do
+              if [ "$scan" = "__default__" ]; then unset PHP_INI_SCAN_DIR; else export PHP_INI_SCAN_DIR="$scan"; fi
+              miss="$(missing_ext)"
+              echo "  PHP_INI_SCAN_DIR=${PHP_INI_SCAN_DIR:-<default>} missing: ${miss:-none}"
+              if [ -z "$miss" ]; then PHP_OK=1; break; fi
+            done
+            "$PHP_BIN" -v
+            "$PHP_BIN" --ini || true
+            if [ -z "$PHP_OK" ]; then
+              echo "ERROR: no PHP configuration provides all required extensions; refusing deployment."
               exit 1
             fi
+
+            # Always show PHP errors in this log: Hostinger's CLI hides them,
+            # which turns any fatal error into a silent "exit 255".
+            artisan() {
+              "$PHP_BIN" -d display_errors=stderr -d display_startup_errors=1 \
+                -d error_reporting=-1 -d log_errors=0 -d memory_limit=512M \
+                "$DEPLOY_PATH/artisan" "$@"
+            }
+
+            echo "✓ Checking that the application boots..."
+            "$PHP_BIN" -d display_errors=stderr -d error_reporting=-1 -d memory_limit=512M -r '
+              require "vendor/autoload.php";
+              $app = require "bootstrap/app.php";
+              $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+              echo "  Laravel ", $app->version(), " booted (env: ", $app->environment(), ")", PHP_EOL;
+            '
 
             # 7. Generate app key only if not set
             echo "✓ Checking application key..."
             if ! grep -q "^APP_KEY=base64:" $DEPLOY_PATH/.env; then
-              php artisan key:generate --force
+              artisan key:generate --force
             fi
 
             # 8. Clear stale compiled state before booting the new release.
@@ -159,32 +207,30 @@ jobs:
             # providers such as Laravel Pail even though production uses
             # composer install --no-dev.
             find "$DEPLOY_PATH/bootstrap/cache" -maxdepth 1 -type f -name '*.php' -delete
-            echo "✓ Running pending database migrations..."
-            php artisan migrate --force
             echo "✓ Clearing Laravel caches..."
-            php artisan package:discover --ansi
-            php artisan optimize:clear
-            php artisan about >/dev/null
+            artisan package:discover --ansi
+            artisan optimize:clear
+            # 9. Run only migrations not recorded in the production database.
+            # Never replace this with migrate:fresh/refresh/reset/db:wipe.
+            echo "✓ Running pending database migrations..."
+            artisan migrate --force -v
 
             # 10. Rebuild the supported optimized cache set.
             echo "✓ Rebuilding Laravel optimized caches..."
-            php artisan optimize
+            artisan optimize
 
             # 12. Ask workers to reload code. Queue restart is harmless for a
             # sync/no-worker setup; Horizon is terminated only when installed.
             echo "✓ Reloading queue workers..."
-            php artisan queue:restart || {
-              if [ "$(php -r 'echo config("queue.default");')" != "sync" ]; then exit 1; fi
-              echo "  Queue workers are not configured; continuing."
-            }
-            if php -r 'exit(class_exists("Laravel\\Horizon\\HorizonServiceProvider") ? 0 : 1);'; then
-              php artisan horizon:terminate
+            artisan queue:restart
+            if [ -d "$DEPLOY_PATH/vendor/laravel/horizon" ]; then
+              artisan horizon:terminate
             fi
 
             # 13. Verify migration state and Laravel bootstrap before success.
             echo "✓ Verifying migration state..."
-            php artisan migrate:status
-            php artisan about >/dev/null
+            artisan migrate:status
+            artisan about >/dev/null
 
             # 10. Set permissions
             echo "✓ Setting file permissions..."
