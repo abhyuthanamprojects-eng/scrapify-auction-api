@@ -12,6 +12,8 @@
 $view = [
     'organizations.view', 'vendors.view', 'auctions.view', 'lots.view',
     'bids.view', 'reports.view', 'tokens.view',
+    // Every staff role gets its own inbox; NotificationController scopes to the caller.
+    'notifications.view',
 ];
 
 $liveView = [

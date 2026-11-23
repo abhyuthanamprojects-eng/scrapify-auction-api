@@ -36,6 +36,18 @@ class AdminNotificationsTest extends TestCase
         $this->getJson('/api/v1/admin/notifications?unread=1')->assertJsonPath('unread_count', 0);
     }
 
+    public function test_every_staff_role_can_read_its_own_admin_notifications(): void
+    {
+        foreach (['operations', 'compliance', 'procurement_manager', 'finance_manager', 'technical_evaluator', 'auditor'] as $role) {
+            $user = User::factory()->create(['role' => $role, 'status' => 'active']);
+            Sanctum::actingAs($user, ['admin:panel']);
+
+            $this->getJson('/api/v1/admin/notifications?unread=1')
+                ->assertOk()
+                ->assertJsonPath('unread_count', 0);
+        }
+    }
+
     public function test_public_user_cannot_read_admin_notification_route(): void
     {
         $buyer = User::factory()->create(['role' => 'buyer', 'status' => 'active']);
