@@ -469,6 +469,11 @@ Route::prefix('v1')->group(function () {
             Route::get('finance/summary', [FinanceController::class, 'summary'])
                 ->middleware('permission:wallet.view_any');
 
+            Route::get('emd', [WalletController::class, 'emdList'])
+                ->middleware('permission:emd.manage');
+            Route::post('emd/{id}/release', [WalletController::class, 'releaseEmd'])
+                ->middleware('permission:emd.manage');
+
             Route::get('fulfilments', [FulfilmentController::class, 'index'])
                 ->middleware('permission:orders.manage');
 
