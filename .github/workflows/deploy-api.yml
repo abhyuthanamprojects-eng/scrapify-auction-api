@@ -192,6 +192,14 @@ jobs:
                 "$DEPLOY_PATH/artisan" "$@"
             }
 
+            # Clear stale compiled state BEFORE the first artisan call.
+            # Hostinger may retain bootstrap/cache files from an earlier
+            # development install. Those caches can reference dev-only
+            # providers such as Laravel Pail even though production uses
+            # composer install --no-dev, and Laravel reads them on boot.
+            echo "✓ Removing stale bootstrap cache..."
+            find "$DEPLOY_PATH/bootstrap/cache" -maxdepth 1 -type f -name '*.php' -delete
+
             # Hostinger's DISEVAL blocks "php -r", so boot through artisan,
             # which loads every service provider from a real file.
             echo "✓ Checking that the application boots..."
@@ -203,12 +211,7 @@ jobs:
               artisan key:generate --force
             fi
 
-            # 8. Clear stale compiled state before booting the new release.
-            # Hostinger may retain bootstrap/cache files from an earlier
-            # development install. Those caches can reference dev-only
-            # providers such as Laravel Pail even though production uses
-            # composer install --no-dev.
-            find "$DEPLOY_PATH/bootstrap/cache" -maxdepth 1 -type f -name '*.php' -delete
+            # 8. Rebuild package manifest and clear remaining caches.
             echo "✓ Clearing Laravel caches..."
             artisan package:discover --ansi
             artisan optimize:clear
