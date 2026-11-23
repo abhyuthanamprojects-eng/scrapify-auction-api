@@ -27,7 +27,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // Every API route gets an optional user resolve so public endpoints can
         // vary their response for signed-in callers without requiring a token.
         $middleware->appendToGroup('api', \App\Http\Middleware\ResolveOptionalUser::class);
+
+        // This is a token API with no web login page. Never redirect guests
+        // to a "login" route (it does not exist and turned every
+        // unauthenticated request into a 500); they get a 401 JSON instead.
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // API and broadcasting-auth callers always receive JSON errors, even
+        // when a client omits the "Accept: application/json" header.
+        $exceptions->shouldRenderJsonWhen(
+            fn ($request) => $request->is('api/*', 'broadcasting/*') || $request->expectsJson()
+        );
     })->create();
