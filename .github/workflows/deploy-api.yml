@@ -234,8 +234,9 @@ jobs:
 
             # 13. Verify migration state and Laravel bootstrap before success.
             echo "✓ Verifying migration state..."
+            # (No "artisan about": it shells out to Composer, which
+            # Hostinger blocks. Boot is already proven by the steps above.)
             artisan migrate:status
-            artisan about >/dev/null
 
             # 10. Set permissions
             echo "✓ Setting file permissions..."
